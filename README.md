@@ -30,9 +30,18 @@ Controlador de motor paso a paso **NEMA23** + **gateway industrial** basado en
 | **CAN RX** | 26 | TWAI |
 | **CAN SE** | 23 | SN65HVD231 Rs — **LOW = high-speed**, HIGH = standby |
 | **BOOST EN** | 16 | ME2107 / PIN_5V_EN — HIGH para habilitar 5V |
-| **WS2812B** | 4 | LED RGB |
+| **WS2812B** | 4 | LED RGB de estado (ver "Indicador de estado") |
 | **LIMIT MIN** | 32 | Final de carrera |
 | **LIMIT MAX** | 33 | Final de carrera |
+| **RELÉ 1** | 13 | Salida activo-alto — coil Modbus 0 ⚠️ compartido con microSD |
+| **RELÉ 2** | 14 | Salida activo-alto — coil Modbus 1 ⚠️ compartido con microSD |
+
+> ⚠️ **GPIO 13 y 14 están compartidos con el zócalo microSD** de la T-CAN485.
+> Están ruteados y disponibles **solo si NO vas a usar la SD**. Tené cuidado con
+> el zócalo SD, sus resistencias/pull-ups y cualquier tarjeta insertada (pueden
+> cargar la línea o entrar en conflicto con la salida). Para tomar la señal
+> físicamente, lo más seguro es soldar desde los **pads del propio zócalo
+> microSD**, o confirmar continuidad con multímetro antes de cablear el relé.
 
 ## Quick Start
 
@@ -115,6 +124,42 @@ que la placa trae cerca del USB-C, y dejar el USB para datos/monitor.
 - **Local Only**: solo comandos al motor NEMA23.
 - **CAN**: mensajes CAN bus independientes.
 
+## Salidas de relé ("topes") vía Modbus
+
+Dos relés en **GPIO 13/14** (activo-alto, ver advertencia de microSD en el Pinout)
+se controlan como **coils Modbus** dirigidos al **slave ID local 247 (0xF7)**.
+Las tramas a ese ID se procesan en el gateway y **no** se reenvían al bus RS485
+(filtro local activado). El gateway responde de forma síncrona, así que un master
+estándar no da timeout.
+
+- **Conexión**: Modbus **TCP**, `<IP>:502`, **Unit ID = 247 (0xF7)**
+- **Mapa de coils**: coil `0` = Relé 1 (GPIO 13) · coil `1` = Relé 2 (GPIO 14)
+
+| Acción | Función | Detalle |
+|--------|---------|---------|
+| Encender Relé 1 | **FC 05** (Write Single Coil) | coil `0`, valor `0xFF00` |
+| Apagar Relé 1 | **FC 05** | coil `0`, valor `0x0000` |
+| Relé 2 | **FC 05** | coil `1` |
+| Ambos a la vez | **FC 0F** (Write Multiple Coils) | start `0`, qty `2` |
+| Leer estado | **FC 01** (Read Coils) | start `0`, qty `2` |
+
+Direcciones o valores inválidos devuelven una excepción Modbus estándar
+(`0x01` función ilegal, `0x02` dirección ilegal, `0x03` valor ilegal).
+Los relés arrancan **desactivados** tras el reset.
+
+## Indicador de estado (WS2812B)
+
+El LED RGB de **GPIO 4** muestra el estado del gateway con prioridad (los estados
+críticos pisan a los informativos). Siempre está encendido con alguna señal:
+
+| Prioridad | Estado | Color | Patrón |
+|-----------|--------|-------|--------|
+| 1 (crítico) | Motor en **E-STOP** | 🔴 Rojo | Parpadeo rápido |
+| 2 (actividad) | **Motor moviéndose** | 🩵 Cian | Fijo |
+| 3 (reposo) | **STA conectado** a la red | 🟢 Verde | Respiración |
+| 3 (reposo) | **Solo AP** (sin STA) | 🔵 Azul | Respiración |
+| 3 (reposo) | Arrancando / sin red | ⚪ Blanco tenue | Respiración |
+
 ## Estructura del proyecto
 
 ```text
@@ -124,10 +169,13 @@ nema23_lilygo/
 ├── partitions.csv
 ├── main/
 │   ├── CMakeLists.txt
+│   ├── idf_component.yml        <- Dependencias (espressif/led_strip)
 │   ├── main.cpp                 <- Entry point
 │   ├── pin_config.h             <- GPIO mapping
 │   ├── wifi_manager.h/cpp       <- WiFi AP/STA + HTTP
-│   ├── bridge_rs485.h/cpp       <- Modbus TCP <-> RS485
+│   ├── bridge_rs485.h/cpp       <- Modbus TCP <-> RS485 + relés (coils)
+│   ├── relay_control.h/cpp      <- Salidas de relé (GPIO 13/14)
+│   ├── status_led.h/cpp         <- Indicador WS2812B por estado
 │   ├── can_bus.h/cpp            <- CAN bus (TWAI)
 │   ├── stepper_control.h/cpp    <- NEMA23 via FastAccelStepper
 │   └── stepper_motor_encoder.c/h <- RMT encoder
