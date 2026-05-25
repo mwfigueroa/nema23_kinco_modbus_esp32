@@ -343,7 +343,7 @@ esp_err_t bridge_rs485_init(const bridge_config_t *config)
     s_bridge_config = *config;
     s_running = true;
 
-    /* Inicializar UART RS485 */
+    /* Inicializar UART RS485 cambio*/
     esp_err_t ret = rs485_uart_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Error inicializando RS485 UART: %s", esp_err_to_name(ret));
