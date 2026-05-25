@@ -9,6 +9,7 @@ idf_component_register(
         "stepper_control.cpp"
         "stepper_motor_encoder.c"
         "status_led.cpp"
+        "relay_control.cpp"
     INCLUDE_DIRS
         "."
         "../components/FastAccelStepper/src"

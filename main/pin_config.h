@@ -67,6 +67,17 @@ extern "C" {
 #define LIMIT_SW_MAX_GPIO       33
 
 /* ================================================================
+ * Salidas de relé ("topes") — controladas por Modbus coils
+ * GPIO 13 y 14: libres en el ESP32 y sin restricciones de strapping.
+ * Manejan la señal de control de un módulo de relé (3.3 V, ~20 mA máx);
+ * para cargas inductivas usar el driver/optoacoplador del módulo de relé.
+ * ================================================================ */
+#define RELAY1_GPIO             13      // Relé 1 — coil Modbus 0
+#define RELAY2_GPIO             14      // Relé 2 — coil Modbus 1
+#define RELAY_COUNT             2
+#define RELAY_ACTIVE_LEVEL      1       // 1 = activo-alto (GPIO HIGH activa el relé)
+
+/* ================================================================
  * UART de Debug (conector USB-UART externo)
  * ================================================================ */
 #define DEBUG_UART_PORT         UART_NUM_0

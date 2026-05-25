@@ -11,6 +11,7 @@
 
 #include "bridge_rs485.h"
 #include "pin_config.h"
+#include "relay_control.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "driver/uart.h"
@@ -185,6 +186,123 @@ static esp_err_t modbus_rtu_to_tcp(const uint8_t *rtu_frame, size_t rtu_len,
     return ESP_OK;
 }
 
+/* ================================================================
+ * Servidor Modbus local — control de relés vía coils
+ * ================================================================ */
+
+/* Códigos de excepción Modbus. */
+#define MB_EXC_ILLEGAL_FUNCTION  0x01
+#define MB_EXC_ILLEGAL_ADDRESS   0x02
+#define MB_EXC_ILLEGAL_VALUE     0x03
+
+/** Anexa el CRC16 RTU a una trama y devuelve la longitud total (con CRC). */
+static size_t modbus_finalize(uint8_t *frame, size_t pdu_len)
+{
+    uint16_t crc = modbus_crc16(frame, pdu_len);
+    frame[pdu_len]     = (uint8_t)(crc & 0xFF);
+    frame[pdu_len + 1] = (uint8_t)((crc >> 8) & 0xFF);
+    return pdu_len + 2;
+}
+
+/** Construye una respuesta de excepción Modbus (FC | 0x80). */
+static size_t modbus_exception(uint8_t *resp, uint8_t slave, uint8_t fc, uint8_t code)
+{
+    resp[0] = slave;
+    resp[1] = fc | 0x80;
+    resp[2] = code;
+    return modbus_finalize(resp, 3);
+}
+
+/**
+ * Procesa una trama Modbus RTU dirigida al gateway local (control de relés).
+ * Soporta:
+ *   - FC 0x01 Read Coils         → lee el estado de los relés
+ *   - FC 0x05 Write Single Coil  → enciende/apaga un relé (0xFF00=ON, 0x0000=OFF)
+ *   - FC 0x0F Write Multiple Coils → escribe varios relés de una
+ * Los coils 0..RELAY_COUNT-1 mapean a los relés. Genera la respuesta RTU
+ * completa (con CRC) en `resp`/`resp_len`.
+ */
+static esp_err_t handle_local_modbus(const uint8_t *req, size_t req_len,
+                                     uint8_t *resp, size_t *resp_len)
+{
+    if (req_len < 4) return ESP_ERR_INVALID_SIZE;
+
+    uint8_t slave = req[0];
+    uint8_t fc    = req[1];
+
+    switch (fc) {
+    case 0x01: {  /* Read Coils */
+        if (req_len < 8) { *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_VALUE); break; }
+        uint16_t addr = ((uint16_t)req[2] << 8) | req[3];
+        uint16_t qty  = ((uint16_t)req[4] << 8) | req[5];
+        if (qty == 0 || (uint32_t)addr + qty > RELAY_COUNT) {
+            *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_ADDRESS);
+            break;
+        }
+        uint8_t byte_count = (uint8_t)((qty + 7) / 8);
+        resp[0] = slave;
+        resp[1] = fc;
+        resp[2] = byte_count;
+        memset(resp + 3, 0, byte_count);
+        for (uint16_t i = 0; i < qty; i++) {
+            if (relay_control_get((uint8_t)(addr + i))) {
+                resp[3 + i / 8] |= (uint8_t)(1 << (i % 8));
+            }
+        }
+        *resp_len = modbus_finalize(resp, 3 + byte_count);
+        break;
+    }
+
+    case 0x05: {  /* Write Single Coil */
+        if (req_len < 8) { *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_VALUE); break; }
+        uint16_t addr = ((uint16_t)req[2] << 8) | req[3];
+        uint16_t val  = ((uint16_t)req[4] << 8) | req[5];
+        if (addr >= RELAY_COUNT) {
+            *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_ADDRESS);
+            break;
+        }
+        if (val != 0x0000 && val != 0xFF00) {
+            *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_VALUE);
+            break;
+        }
+        relay_control_set((uint8_t)addr, val == 0xFF00);
+        /* La respuesta a 0x05 es el eco de la petición (sin CRC original). */
+        memcpy(resp, req, 6);
+        *resp_len = modbus_finalize(resp, 6);
+        break;
+    }
+
+    case 0x0F: {  /* Write Multiple Coils */
+        if (req_len < 9) { *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_VALUE); break; }
+        uint16_t addr       = ((uint16_t)req[2] << 8) | req[3];
+        uint16_t qty        = ((uint16_t)req[4] << 8) | req[5];
+        uint8_t  byte_count = req[6];
+        if (qty == 0 || (uint32_t)addr + qty > RELAY_COUNT) {
+            *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_ADDRESS);
+            break;
+        }
+        if (byte_count != (qty + 7) / 8 || req_len < (size_t)(7 + byte_count + 2)) {
+            *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_VALUE);
+            break;
+        }
+        for (uint16_t i = 0; i < qty; i++) {
+            bool on = (req[7 + i / 8] >> (i % 8)) & 0x01;
+            relay_control_set((uint8_t)(addr + i), on);
+        }
+        /* Respuesta: eco de slave+fc+dirección+cantidad. */
+        memcpy(resp, req, 6);
+        *resp_len = modbus_finalize(resp, 6);
+        break;
+    }
+
+    default:
+        *resp_len = modbus_exception(resp, slave, fc, MB_EXC_ILLEGAL_FUNCTION);
+        break;
+    }
+
+    return ESP_OK;
+}
+
 static int recv_exact(int sock, uint8_t *buf, size_t len)
 {
     size_t received = 0;
@@ -286,17 +404,21 @@ static void tcp_server_task(void *arg)
             uint8_t slave_id = tcp_buf[6];  /* UnitID está en offset 6 */
 
             if (s_bridge_config.enable_filter && slave_id == s_bridge_config.slave_id) {
-                /* Comando local — encolar para procesamiento */
+                /* Comando dirigido al gateway local — procesar coils (relés) y
+                 * responder de forma síncrona para que el master no dé timeout. */
                 size_t rtu_len;
                 if (modbus_tcp_to_rtu(tcp_buf, tcp_frame_len, rtu_buf, &rtu_len) == ESP_OK) {
-                    uint8_t *msg = (uint8_t *)malloc(rtu_len);
-                    if (msg && s_rx_queue) {
-                        memcpy(msg, rtu_buf, rtu_len);
-                        if (xQueueSend(s_rx_queue, &msg, 0) != pdTRUE) {
-                            free(msg);
+                    uint8_t rtu_resp[260];
+                    size_t  rtu_resp_len = 0;
+                    if (handle_local_modbus(rtu_buf, rtu_len, rtu_resp, &rtu_resp_len) == ESP_OK
+                        && rtu_resp_len > 0) {
+                        uint8_t tcp_resp[260];
+                        size_t  tcp_resp_len;
+                        uint16_t tid = (tcp_buf[0] << 8) | tcp_buf[1];
+                        if (modbus_rtu_to_tcp(rtu_resp, rtu_resp_len, tcp_resp,
+                                              &tcp_resp_len, tid) == ESP_OK) {
+                            send(client_sock, tcp_resp, tcp_resp_len, 0);
                         }
-                    } else if (msg) {
-                        free(msg);
                     }
                 }
             } else if (s_bridge_config.mode == BRIDGE_MODE_MODBUS_TCP_RS485) {

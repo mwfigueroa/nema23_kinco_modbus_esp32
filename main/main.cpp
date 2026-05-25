@@ -30,6 +30,7 @@
 #include "can_bus.h"
 #include "stepper_control.h"
 #include "status_led.h"
+#include "relay_control.h"
 #include "pin_config.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -150,21 +151,27 @@ extern "C" void app_main(void)
         stepper_control_enable(true);
     }
 
-    /* ——— 5. Inicializar puente Modbus TCP ↔ RS485 ——— */
+    /* ——— 5. Inicializar salidas de relé ("topes") ——— */
+    ret = relay_control_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Relés no iniciados: %s", esp_err_to_name(ret));
+    }
+
+    /* ——— 6. Inicializar puente Modbus TCP ↔ RS485 ——— */
     bridge_config_t bridge_cfg = {};
     bridge_cfg.mode = BRIDGE_MODE_MODBUS_TCP_RS485;
     bridge_cfg.modbus_tcp_port = 502;
     bridge_cfg.rs485_baud = 115200;
     bridge_cfg.rs485_uart_num = RS485_UART_PORT;
-    bridge_cfg.slave_id = 0x01;         /* ID local para comandos directos */
-    bridge_cfg.enable_filter = false;    /* Evita consumir el ID 1 hasta implementar dispatch local */
+    bridge_cfg.slave_id = 0xF7;          /* ID 247: gateway local (control de relés vía coils) */
+    bridge_cfg.enable_filter = true;     /* Las tramas a 0xF7 se procesan local (no van al bus RS485) */
 
     ret = bridge_rs485_init(&bridge_cfg);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Puente RS485 no iniciado: %s", esp_err_to_name(ret));
     }
 
-    /* ——— 6. Inicializar CAN bus (opcional) ——— */
+    /* ——— 7. Inicializar CAN bus (opcional) ——— */
     can_bus_config_t can_cfg = can_bus_get_default_config();
     ret = can_bus_init(&can_cfg);
     if (ret != ESP_OK) {
@@ -173,13 +180,13 @@ extern "C" void app_main(void)
         can_bus_start_rx_task(4096, 3);
     }
 
-    /* ——— 7. Indicador de estado WS2812B ——— */
+    /* ——— 8. Indicador de estado WS2812B ——— */
     ret = status_led_init();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Indicador WS2812B no iniciado: %s", esp_err_to_name(ret));
     }
 
-    /* ——— 8. Arrancar tareas ——— */
+    /* ——— 9. Arrancar tareas ——— */
     xTaskCreate(cmd_processor_task, "cmd_proc", 6144, nullptr, 4, nullptr);
     xTaskCreate(status_monitor_task, "status_mon", 4096, nullptr, 2, nullptr);
 
