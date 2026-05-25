@@ -1,0 +1,19 @@
+# ESP-IDF build output
+/build/
+/build_marti/
+build*/
+
+# Generated sdkconfig (regenerado por idf.py; se versiona sdkconfig.defaults)
+sdkconfig
+sdkconfig.old
+sdkconfig.ci
+
+# Managed components / dependencias resueltas
+managed_components/
+
+# Editor / SO
+.vscode/settings.json
+*.swp
+*~
+.DS_Store
+Thumbs.db
