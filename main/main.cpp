@@ -156,7 +156,7 @@ extern "C" void app_main(void)
     bridge_cfg.rs485_baud = 115200;
     bridge_cfg.rs485_uart_num = RS485_UART_PORT;
     bridge_cfg.slave_id = 0x01;         /* ID local para comandos directos */
-    bridge_cfg.enable_filter = true;
+    bridge_cfg.enable_filter = false;    /* Evita consumir el ID 1 hasta implementar dispatch local */
 
     ret = bridge_rs485_init(&bridge_cfg);
     if (ret != ESP_OK) {

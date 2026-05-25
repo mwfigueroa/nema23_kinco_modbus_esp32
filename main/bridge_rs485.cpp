@@ -185,6 +185,19 @@ static esp_err_t modbus_rtu_to_tcp(const uint8_t *rtu_frame, size_t rtu_len,
     return ESP_OK;
 }
 
+static int recv_exact(int sock, uint8_t *buf, size_t len)
+{
+    size_t received = 0;
+    while (received < len) {
+        int ret = recv(sock, buf + received, len - received, 0);
+        if (ret <= 0) {
+            return ret;
+        }
+        received += ret;
+    }
+    return (int)received;
+}
+
 /* ================================================================
  * Tarea del servidor TCP
  * ================================================================ */
@@ -236,16 +249,38 @@ static void tcp_server_task(void *arg)
         /* Manejar cliente en un loop */
         uint8_t tcp_buf[260];
         uint8_t rtu_buf[256];
-        int recv_len;
-
         while (s_running) {
-            /* Leer MBAP header primero (6 bytes) */
-            recv_len = recv(client_sock, tcp_buf, 6, MSG_PEEK);
+            if (s_bridge_config.mode == BRIDGE_MODE_RAW_TCP_RS485) {
+                int recv_len = recv(client_sock, tcp_buf, sizeof(tcp_buf), 0);
+                if (recv_len <= 0) break;
+
+                uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
+                                 tcp_buf, recv_len);
+
+                uint8_t resp[256];
+                int resp_len = uart_read_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
+                                               resp, sizeof(resp),
+                                               pdMS_TO_TICKS(200));
+                if (resp_len > 0) {
+                    send(client_sock, resp, resp_len, 0);
+                }
+                continue;
+            }
+
+            /* Leer una trama Modbus TCP completa: MBAP(6) + UnitID/PDU. */
+            int recv_len = recv_exact(client_sock, tcp_buf, 6);
             if (recv_len <= 0) break;
 
-            /* Leer el resto de la trama */
-            recv_len = recv(client_sock, tcp_buf, sizeof(tcp_buf), 0);
+            uint16_t mbap_len = ((uint16_t)tcp_buf[4] << 8) | tcp_buf[5];
+            if (mbap_len == 0 || mbap_len > sizeof(tcp_buf) - 6) {
+                ESP_LOGW(TAG, "Length MBAP invalido: %u", mbap_len);
+                break;
+            }
+
+            recv_len = recv_exact(client_sock, tcp_buf + 6, mbap_len);
             if (recv_len <= 0) break;
+
+            size_t tcp_frame_len = 6 + mbap_len;
 
             /* Verificar si es para el slave local o para RS485 */
             uint8_t slave_id = tcp_buf[6];  /* UnitID está en offset 6 */
@@ -253,18 +288,21 @@ static void tcp_server_task(void *arg)
             if (s_bridge_config.enable_filter && slave_id == s_bridge_config.slave_id) {
                 /* Comando local — encolar para procesamiento */
                 size_t rtu_len;
-                if (modbus_tcp_to_rtu(tcp_buf, recv_len, rtu_buf, &rtu_len) == ESP_OK) {
+                if (modbus_tcp_to_rtu(tcp_buf, tcp_frame_len, rtu_buf, &rtu_len) == ESP_OK) {
                     uint8_t *msg = (uint8_t *)malloc(rtu_len);
                     if (msg && s_rx_queue) {
                         memcpy(msg, rtu_buf, rtu_len);
-                        xQueueSend(s_rx_queue, &msg, 0);
+                        if (xQueueSend(s_rx_queue, &msg, 0) != pdTRUE) {
+                            free(msg);
+                        }
+                    } else if (msg) {
+                        free(msg);
                     }
                 }
-            } else if (s_bridge_config.mode == BRIDGE_MODE_MODBUS_TCP_RS485 ||
-                       s_bridge_config.mode == BRIDGE_MODE_RAW_TCP_RS485) {
+            } else if (s_bridge_config.mode == BRIDGE_MODE_MODBUS_TCP_RS485) {
                 /* Forward al bus RS485 */
                 size_t rtu_len;
-                if (modbus_tcp_to_rtu(tcp_buf, recv_len, rtu_buf, &rtu_len) == ESP_OK) {
+                if (modbus_tcp_to_rtu(tcp_buf, tcp_frame_len, rtu_buf, &rtu_len) == ESP_OK) {
                     uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
                                      rtu_buf, rtu_len);
 

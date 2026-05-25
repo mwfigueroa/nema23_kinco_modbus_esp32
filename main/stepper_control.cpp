@@ -189,12 +189,18 @@ esp_err_t stepper_control_run_speed(int32_t speed_steps_per_sec)
     s_state = STEPPER_STATE_RUNNING;
 
 #if HAS_FAST_ACCEL_STEPPER
+    uint32_t speed_hz = (speed_steps_per_sec < 0)
+                            ? (uint32_t)(-speed_steps_per_sec)
+                            : (uint32_t)speed_steps_per_sec;
+    if (speed_hz == 0) {
+        return stepper_control_stop();
+    }
+    s_stepper->setSpeedInHz(speed_hz);
     if (speed_steps_per_sec >= 0) {
         s_stepper->runForward();
     } else {
         s_stepper->runBackward();
     }
-    (void)speed_steps_per_sec;  // usado solo en log
 #endif
 
     ESP_LOGI(TAG, "Velocidad: %ld steps/s", (long)speed_steps_per_sec);
