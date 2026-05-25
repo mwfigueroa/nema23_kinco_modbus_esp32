@@ -1,0 +1,4 @@
+## Dependencias gestionadas (ESP Component Registry)
+dependencies:
+  ## Driver del WS2812B vía RMT — usado por status_led.cpp
+  espressif/led_strip: "^2.5.5"

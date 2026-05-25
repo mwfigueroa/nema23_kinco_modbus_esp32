@@ -29,6 +29,7 @@
 #include "bridge_rs485.h"
 #include "can_bus.h"
 #include "stepper_control.h"
+#include "status_led.h"
 #include "pin_config.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -172,7 +173,13 @@ extern "C" void app_main(void)
         can_bus_start_rx_task(4096, 3);
     }
 
-    /* ——— 7. Arrancar tareas ——— */
+    /* ——— 7. Indicador de estado WS2812B ——— */
+    ret = status_led_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Indicador WS2812B no iniciado: %s", esp_err_to_name(ret));
+    }
+
+    /* ——— 8. Arrancar tareas ——— */
     xTaskCreate(cmd_processor_task, "cmd_proc", 6144, nullptr, 4, nullptr);
     xTaskCreate(status_monitor_task, "status_mon", 4096, nullptr, 2, nullptr);
 

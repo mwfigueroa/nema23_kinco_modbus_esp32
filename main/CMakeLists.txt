@@ -8,6 +8,7 @@ idf_component_register(
         "can_bus.cpp"
         "stepper_control.cpp"
         "stepper_motor_encoder.c"
+        "status_led.cpp"
     INCLUDE_DIRS
         "."
         "../components/FastAccelStepper/src"
@@ -19,4 +20,5 @@ idf_component_register(
         esp_event
         nvs_flash
         lwip
+        led_strip
 )

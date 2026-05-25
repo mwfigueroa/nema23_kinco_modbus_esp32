@@ -221,6 +221,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             break;
         case WIFI_EVENT_STA_DISCONNECTED:
             ESP_LOGI(TAG, "WiFi STA desconectado, reintentando...");
+            /* Limpiar el bit para que el estado de conectividad (y el LED) refleje
+             * la realidad; se vuelve a setear en IP_EVENT_STA_GOT_IP al reconectar. */
+            xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
             esp_wifi_connect();
             break;
         default:
