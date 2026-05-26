@@ -27,11 +27,6 @@ function Import-EspIdfEnvironment {
                 $env:IDF_TOOLS_PATH = Join-Path $env:USERPROFILE ".espressif"
             }
 
-            $idfPythonDir = Join-Path $env:IDF_TOOLS_PATH "tools\idf-python\3.11.2"
-            if (Test-Path (Join-Path $idfPythonDir "python.exe")) {
-                $env:PATH = "$idfPythonDir;$env:PATH"
-            }
-
             Write-Host "[*] Cargando ESP-IDF desde $exportScript" -ForegroundColor Yellow
 
             $prevPref = $ErrorActionPreference

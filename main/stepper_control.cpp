@@ -37,7 +37,9 @@ static stepper_config_t s_cfg = {};
 static stepper_state_t s_state = STEPPER_STATE_IDLE;
 static int32_t s_current_position = 0;
 static int32_t s_current_speed = 0;
+static uint32_t s_move_speed = 0;
 static bool s_enabled = false;
+static bool s_home_active = false;
 
 #if HAS_FAST_ACCEL_STEPPER
   static FastAccelStepperEngine *s_engine = nullptr;
@@ -76,6 +78,7 @@ esp_err_t stepper_control_init(const stepper_config_t *config)
 {
     if (!config) return ESP_ERR_INVALID_ARG;
     s_cfg = *config;
+    s_move_speed = s_cfg.max_speed_steps_per_sec;
 
     /* Configurar GPIOs de dirección y enable */
     gpio_config_t io_conf = {};
@@ -146,9 +149,11 @@ esp_err_t stepper_control_move_to(int32_t target_steps)
 {
     if (s_state == STEPPER_STATE_ESTOP) return ESP_ERR_INVALID_STATE;
 
+    s_home_active = false;
     s_state = STEPPER_STATE_RUNNING;
 
 #if HAS_FAST_ACCEL_STEPPER
+    s_stepper->setSpeedInHz(s_move_speed);
     s_stepper->moveTo(target_steps);
 #else
     /* Fallback: movimiento simple */
@@ -162,7 +167,7 @@ esp_err_t stepper_control_move_to(int32_t target_steps)
 
     /* Generar pulsos manualmente (mejor usar FastAccelStepper!) */
     uint32_t abs_delta = abs(delta);
-    uint32_t delay_us = 1000000 / s_cfg.max_speed_steps_per_sec / 2;
+    uint32_t delay_us = 1000000 / s_move_speed / 2;
     for (uint32_t i = 0; i < abs_delta; i++) {
         gpio_set_level((gpio_num_t)s_cfg.step_gpio, 1);
         esp_rom_delay_us(delay_us);
@@ -178,6 +183,7 @@ esp_err_t stepper_control_move_to(int32_t target_steps)
 
 esp_err_t stepper_control_move_relative(int32_t delta_steps)
 {
+    stepper_control_get_position();
     return stepper_control_move_to(s_current_position + delta_steps);
 }
 
@@ -185,6 +191,7 @@ esp_err_t stepper_control_run_speed(int32_t speed_steps_per_sec)
 {
     if (s_state == STEPPER_STATE_ESTOP) return ESP_ERR_INVALID_STATE;
 
+    s_home_active = false;
     s_current_speed = speed_steps_per_sec;
     s_state = STEPPER_STATE_RUNNING;
 
@@ -207,11 +214,33 @@ esp_err_t stepper_control_run_speed(int32_t speed_steps_per_sec)
     return ESP_OK;
 }
 
+esp_err_t stepper_control_set_move_speed(uint32_t speed_steps_per_sec)
+{
+    if (speed_steps_per_sec == 0 ||
+        speed_steps_per_sec > s_cfg.max_speed_steps_per_sec) {
+        ESP_LOGW(TAG, "Velocidad de movimiento invalida: %lu steps/s (max=%lu)",
+                 (unsigned long)speed_steps_per_sec,
+                 (unsigned long)s_cfg.max_speed_steps_per_sec);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    s_move_speed = speed_steps_per_sec;
+#if HAS_FAST_ACCEL_STEPPER
+    if (s_stepper && !s_stepper->isRunning()) {
+        s_stepper->setSpeedInHz(s_move_speed);
+    }
+#endif
+    ESP_LOGI(TAG, "Velocidad de movimiento configurada: %lu steps/s",
+             (unsigned long)s_move_speed);
+    return ESP_OK;
+}
+
 esp_err_t stepper_control_stop(void)
 {
 #if HAS_FAST_ACCEL_STEPPER
     s_stepper->stopMove();
 #endif
+    s_home_active = false;
     s_current_speed = 0;
     s_state = STEPPER_STATE_IDLE;
     ESP_LOGI(TAG, "Motor detenido");
@@ -223,6 +252,7 @@ esp_err_t stepper_control_estop(void)
 #if HAS_FAST_ACCEL_STEPPER
     s_stepper->forceStop();
 #endif
+    s_home_active = false;
     s_current_speed = 0;
     s_state = STEPPER_STATE_ESTOP;
     ESP_LOGI(TAG, "EMERGENCY STOP");
@@ -231,15 +261,23 @@ esp_err_t stepper_control_estop(void)
 
 esp_err_t stepper_control_home(void)
 {
+    if (s_state == STEPPER_STATE_ESTOP) return ESP_ERR_INVALID_STATE;
+
+    stepper_control_get_position();
     s_state = STEPPER_STATE_HOMING;
-    ESP_LOGI(TAG, "Homing iniciado...");
+    s_home_active = true;
+    ESP_LOGI(TAG, "Home: moviendo desde %ld hasta 0 steps", (long)s_current_position);
 
-    /* TODO: implementar secuencia de homing con finales de carrera */
-    /* Mover hacia atrás hasta activar limit_min, luego avanzar un offset */
+#if HAS_FAST_ACCEL_STEPPER
+    s_stepper->moveTo(0);
+#else
+    esp_err_t ret = stepper_control_move_to(0);
+    if (ret != ESP_OK) {
+        s_home_active = false;
+        return ret;
+    }
+#endif
 
-    s_state = STEPPER_STATE_IDLE;
-    s_current_position = 0;
-    ESP_LOGI(TAG, "Homing completado, posición=0");
     return ESP_OK;
 }
 
@@ -261,8 +299,12 @@ stepper_state_t stepper_control_get_state(void)
 #if HAS_FAST_ACCEL_STEPPER
     if (s_state != STEPPER_STATE_ESTOP) {
         if (s_stepper->isRunning()) {
-            s_state = STEPPER_STATE_RUNNING;
+            s_state = s_home_active ? STEPPER_STATE_HOMING : STEPPER_STATE_RUNNING;
         } else if (s_state == STEPPER_STATE_RUNNING || s_state == STEPPER_STATE_HOMING) {
+            if (s_home_active) {
+                ESP_LOGI(TAG, "Home completado, posicion=%ld", (long)s_stepper->getCurrentPosition());
+                s_home_active = false;
+            }
             s_state = STEPPER_STATE_IDLE;
         }
         s_current_position = s_stepper->getCurrentPosition();
@@ -280,4 +322,9 @@ int32_t stepper_control_get_position(void)
 int32_t stepper_control_get_current_speed(void)
 {
     return s_current_speed;
+}
+
+uint32_t stepper_control_get_move_speed(void)
+{
+    return s_move_speed;
 }

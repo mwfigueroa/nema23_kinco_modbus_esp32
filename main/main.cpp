@@ -119,11 +119,11 @@ extern "C" void app_main(void)
 
     /* ——— 2. Inicializar WiFi (AP + STA al laboratorio) ——— */
     wifi_config_user_t wifi_cfg = {};
-    strcpy(wifi_cfg.ap_ssid, "NEMA23_Gateway");
-    strcpy(wifi_cfg.ap_password, "12345678");
+    wifi_cfg.ap_ssid[0] = '\0';
+    wifi_cfg.ap_password[0] = '\0';
     strcpy(wifi_cfg.sta_ssid, "NS-LAB");
     strcpy(wifi_cfg.sta_password, "@L4b0r4t0r10@");
-    wifi_cfg.enable_ap = true;
+    wifi_cfg.enable_ap = false;
     wifi_cfg.enable_sta = true;
 
     esp_err_t ret = wifi_manager_init(&wifi_cfg);
@@ -134,7 +134,10 @@ extern "C" void app_main(void)
 
     /* Esperar a que el AP esté listo */
     EventGroupHandle_t wifi_evt = wifi_manager_get_event_group();
-    xEventGroupWaitBits(wifi_evt, WIFI_AP_STARTED_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(5000));
+    EventBits_t wifi_bits = xEventGroupWaitBits(wifi_evt, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(15000));
+    if (!(wifi_bits & WIFI_CONNECTED_BIT)) {
+        ESP_LOGW(TAG, "WiFi STA todavia sin IP; HTTP arrancara y quedara disponible al conectar");
+    }
 
     /* ——— 3. Inicializar servidor HTTP ——— */
     ret = http_server_start(80);
@@ -192,8 +195,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "============================================");
     ESP_LOGI(TAG, " Sistema listo.");
-    ESP_LOGI(TAG, " AP local : SSID=%s -> http://192.168.4.1", wifi_cfg.ap_ssid);
-    ESP_LOGI(TAG, " STA      : conectando a %s (IP via DHCP)", wifi_cfg.sta_ssid);
+    ESP_LOGI(TAG, " STA      : SSID=%s (IP via DHCP; ver log 'WiFi STA IP')", wifi_cfg.sta_ssid);
     ESP_LOGI(TAG, " Modbus TCP en puerto 502 -> RS485");
     ESP_LOGI(TAG, "============================================");
 

@@ -78,15 +78,29 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
 
     long arg = 0;
     bool has_arg = json_find_int(json, "arg", &arg);
+    long speed = 0;
+    bool has_speed = json_find_int(json, "speed", &speed);
     esp_err_t r = ESP_OK;
     bool known = true;
 
     if (strcmp(cmd, "move_to") == 0) {
-        r = stepper_control_move_to((int32_t)arg);
+        if (has_speed) {
+            r = stepper_control_set_move_speed((uint32_t)speed);
+        }
+        if (r == ESP_OK) {
+            r = stepper_control_move_to((int32_t)arg);
+        }
     } else if (strcmp(cmd, "move_rel") == 0) {
-        r = stepper_control_move_relative((int32_t)arg);
+        if (has_speed) {
+            r = stepper_control_set_move_speed((uint32_t)speed);
+        }
+        if (r == ESP_OK) {
+            r = stepper_control_move_relative((int32_t)arg);
+        }
     } else if (strcmp(cmd, "run_speed") == 0) {
         r = stepper_control_run_speed((int32_t)arg);
+    } else if (strcmp(cmd, "set_speed") == 0) {
+        r = stepper_control_set_move_speed((uint32_t)arg);
     } else if (strcmp(cmd, "stop") == 0) {
         r = stepper_control_stop();
     } else if (strcmp(cmd, "estop") == 0) {
@@ -109,20 +123,22 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
     }
 
     snprintf(resp, resp_sz,
-             "{\"result\":\"%s\",\"cmd\":\"%s\",\"pos\":%ld,\"state\":%d}",
+             "{\"result\":\"%s\",\"cmd\":\"%s\",\"pos\":%ld,\"speed\":%lu,\"state\":%d}",
              (r == ESP_OK) ? "ok" : "error", cmd,
              (long)stepper_control_get_position(),
+             (unsigned long)stepper_control_get_move_speed(),
              (int)stepper_control_get_state());
 }
 
 static esp_err_t http_get_status_handler(httpd_req_t *req)
 {
-    char resp[160];
+    char resp[220];
     snprintf(resp, sizeof(resp),
-             "{\"status\":\"ok\",\"device\":\"NEMA23_Gateway\",\"mode\":\"ap+sta\","
-             "\"pos\":%ld,\"speed\":%ld,\"state\":%d}",
+             "{\"status\":\"ok\",\"device\":\"NEMA23_Gateway\",\"mode\":\"sta\","
+             "\"pos\":%ld,\"speed\":%ld,\"move_speed\":%lu,\"state\":%d}",
              (long)stepper_control_get_position(),
              (long)stepper_control_get_current_speed(),
+             (unsigned long)stepper_control_get_move_speed(),
              (int)stepper_control_get_state());
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
@@ -142,7 +158,7 @@ static esp_err_t http_post_command_handler(httpd_req_t *req)
     buf[ret] = '\0';
     ESP_LOGI(TAG, "Comando recibido: %s", buf);
 
-    char resp[160];
+    char resp[220];
     dispatch_command(buf, resp, sizeof(resp));
 
     httpd_resp_set_type(req, "application/json");

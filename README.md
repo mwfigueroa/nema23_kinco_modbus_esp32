@@ -72,11 +72,10 @@ directorio:
 
 ### 3. Conectarse
 
-El firmware arranca en modo **AP + STA simultáneo**:
+El firmware arranca en modo **STA / cliente WiFi**:
 
 | Vía | SSID / Red | IP de la placa | Notas |
 |-----|-----------|----------------|-------|
-| **AP propio (siempre activo)** | `NEMA23_Gateway` / `12345678` | `192.168.4.1` | Acceso directo, ideal como backup |
 | **STA (cliente de red existente)** | configurado en `main/main.cpp` | DHCP del router | Para acceso desde la red de oficina/laboratorio |
 
 - **Panel web**: `http://<IP>/`
@@ -108,6 +107,8 @@ que la placa trae cerca del USB-C, y dejar el USB para datos/monitor.
 ```json
 {"cmd": "move_to",     "arg": 10000}
 {"cmd": "move_rel",    "arg": -500}
+{"cmd": "move_rel",    "arg": 1000, "speed": 5000}
+{"cmd": "set_speed",   "arg": 5000}
 {"cmd": "run_speed",   "arg": 5000}
 {"cmd": "stop"}
 {"cmd": "estop"}
@@ -116,6 +117,51 @@ que la placa trae cerca del USB-C, y dejar el USB para datos/monitor.
 {"cmd": "rs485_mode"}
 {"cmd": "can_mode"}
 ```
+
+### Ejemplo TCP/IP: avanzar 1000 pasos con velocidad
+
+Conectarse a la misma red WiFi donde se conecta la placa (`NS-LAB`) y usar la IP DHCP informada por el monitor serie:
+
+| Dato | Valor |
+|------|-------|
+| **SSID STA** | `NS-LAB` |
+| **IP placa** | DHCP, ver log `WiFi STA IP: x.x.x.x` |
+| **Endpoint** | `POST http://<IP_STA>/api/command` |
+
+Enviar comando desde PowerShell:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://<IP_STA>/api/command" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"cmd":"move_rel","arg":1000,"speed":5000}'
+```
+
+El cuerpo JSON enviado es:
+
+```json
+{"cmd":"move_rel","arg":1000,"speed":5000}
+```
+
+Tambien se puede configurar la velocidad una vez y luego enviar movimientos:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://<IP_STA>/api/command" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"cmd":"set_speed","arg":5000}'
+
+Invoke-RestMethod `
+  -Uri "http://<IP_STA>/api/command" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"cmd":"move_rel","arg":1000}'
+```
+
+Reemplazar `<IP_STA>` por la IP DHCP que aparece en el monitor serie como
+`WiFi STA IP: x.x.x.x`.
 
 ## Modos de puente
 

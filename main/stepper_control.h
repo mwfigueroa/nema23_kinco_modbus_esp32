@@ -66,6 +66,7 @@ esp_err_t stepper_control_move_relative(int32_t delta_steps);
  * @param speed_steps_per_sec  positivo = CW, negativo = CCW
  */
 esp_err_t stepper_control_run_speed(int32_t speed_steps_per_sec);
+esp_err_t stepper_control_set_move_speed(uint32_t speed_steps_per_sec);
 
 /**
  * Detiene el motor con desaceleración controlada.
@@ -101,6 +102,7 @@ int32_t stepper_control_get_position(void);
  * Devuelve la velocidad actual en steps/s.
  */
 int32_t stepper_control_get_current_speed(void);
+uint32_t stepper_control_get_move_speed(void);
 
 /**
  * Configuración por defecto para NEMA23 con driver externo.
