@@ -70,11 +70,12 @@ explicita y usar esa misma carpeta al flashear:
 ```powershell
 . .\scripts\ensure_idf.ps1
 Import-EspIdfEnvironment
-idf.py -B build_codex build
-idf.py -B build_codex -p COM4 flash
+idf.py -B build_marti build
+idf.py -B build_marti -p COM4 flash
 ```
 
-El ultimo flash validado se hizo en `COM4` usando `build_codex/nema23_lilygo.bin`.
+El ultimo flash validado se hizo en `COM4`. Lo importante es compilar y flashear
+siempre desde el mismo `BuildDir`; por defecto los scripts usan `build_marti/`.
 En el panel web, la UI nueva se identifica como `UI: plc-32bit-v1`.
 
 ### 2. Flashear y monitorear
@@ -327,7 +328,7 @@ nema23_lilygo/
 
 ## Estado de revision (2026-05-27)
 
-Revision tecnica de factibilidad. El proyecto compila (`build_codex/nema23_lilygo.bin`)
+Revision tecnica de factibilidad. El proyecto compila (`build_marti/nema23_lilygo.bin`)
 y la arquitectura es solida. Se corrigieron los siguientes **bugs bloqueantes**
 que impedían que el hardware funcionara; el pinout fue verificado contra el repo
 oficial [Xinyuan-LilyGO/T-CAN485](https://github.com/Xinyuan-LilyGO/T-CAN485).
