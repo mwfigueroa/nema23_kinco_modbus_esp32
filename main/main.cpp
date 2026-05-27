@@ -44,6 +44,100 @@
 static const char *TAG = "main";
 
 /* ================================================================
+ * Prueba RS485 / Modbus RTU contra PLC Kinco MK043E-20DT
+ * ================================================================ */
+
+#define PLC_RS485_TEST_ENABLE       1
+#define PLC_RS485_TEST_BAUD         9600
+#define PLC_RS485_TEST_SLAVE_ID     1
+#define PLC_RS485_TEST_REGISTER     100     /* Ejemplo Kinco K5: VW0 = holding register 100 */
+#define PLC_RS485_TEST_VALUE        1234
+#define PLC_RS485_TEST_TIMEOUT_MS   500
+
+static uint16_t modbus_crc16_local(const uint8_t *buf, size_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= buf[i];
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x0001) ? (uint16_t)((crc >> 1) ^ 0xA001) : (uint16_t)(crc >> 1);
+        }
+    }
+    return crc;
+}
+
+static size_t modbus_append_crc(uint8_t *frame, size_t len_without_crc)
+{
+    uint16_t crc = modbus_crc16_local(frame, len_without_crc);
+    frame[len_without_crc] = (uint8_t)(crc & 0xFF);
+    frame[len_without_crc + 1] = (uint8_t)(crc >> 8);
+    return len_without_crc + 2;
+}
+
+static bool modbus_crc_ok(const uint8_t *frame, size_t len)
+{
+    if (len < 4) return false;
+    uint16_t rx_crc = (uint16_t)frame[len - 2] | ((uint16_t)frame[len - 1] << 8);
+    return rx_crc == modbus_crc16_local(frame, len - 2);
+}
+
+static void log_frame_hex(const char *prefix, const uint8_t *data, size_t len)
+{
+    char hex[3 * 32 + 1] = {};
+    size_t shown = len < 32 ? len : 32;
+    for (size_t i = 0; i < shown; i++) {
+        snprintf(hex + i * 3, sizeof(hex) - i * 3, "%02X ", data[i]);
+    }
+    ESP_LOGI(TAG, "%s len=%u %s%s", prefix, (unsigned)len, hex, len > shown ? "..." : "");
+}
+
+static void plc_rs485_test_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(1500));
+
+    uint8_t req[8] = {
+        PLC_RS485_TEST_SLAVE_ID,
+        0x06,
+        (uint8_t)(PLC_RS485_TEST_REGISTER >> 8),
+        (uint8_t)(PLC_RS485_TEST_REGISTER & 0xFF),
+        (uint8_t)(PLC_RS485_TEST_VALUE >> 8),
+        (uint8_t)(PLC_RS485_TEST_VALUE & 0xFF),
+        0,
+        0,
+    };
+    size_t req_len = modbus_append_crc(req, 6);
+
+    ESP_LOGI(TAG, "PLC RS485 test: slave=%u FC06 holding_reg=%u value=%u baud=%u",
+             PLC_RS485_TEST_SLAVE_ID, PLC_RS485_TEST_REGISTER,
+             PLC_RS485_TEST_VALUE, PLC_RS485_TEST_BAUD);
+    log_frame_hex("PLC TX", req, req_len);
+
+    uint8_t resp[64] = {};
+    size_t resp_len = 0;
+    esp_err_t ret = bridge_rs485_transact(req, req_len, resp, sizeof(resp),
+                                          &resp_len, PLC_RS485_TEST_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "PLC RS485 test sin respuesta: %s", esp_err_to_name(ret));
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    log_frame_hex("PLC RX", resp, resp_len);
+
+    if (!modbus_crc_ok(resp, resp_len)) {
+        ESP_LOGE(TAG, "PLC RS485 test: CRC de respuesta invalido");
+    } else if (resp_len == req_len && memcmp(resp, req, req_len) == 0) {
+        ESP_LOGI(TAG, "PLC RS485 test OK: el PLC hizo eco de FC06");
+    } else if (resp_len >= 5 && resp[0] == PLC_RS485_TEST_SLAVE_ID && resp[1] == (0x06 | 0x80)) {
+        ESP_LOGE(TAG, "PLC RS485 exception: code=0x%02X", resp[2]);
+    } else {
+        ESP_LOGW(TAG, "PLC RS485 test: respuesta valida pero no coincide con el eco esperado");
+    }
+
+    vTaskDelete(nullptr);
+}
+
+/* ================================================================
  * Tarea de procesamiento de comandos locales
  * ================================================================ */
 
@@ -164,7 +258,7 @@ extern "C" void app_main(void)
     bridge_config_t bridge_cfg = {};
     bridge_cfg.mode = BRIDGE_MODE_MODBUS_TCP_RS485;
     bridge_cfg.modbus_tcp_port = 502;
-    bridge_cfg.rs485_baud = 115200;
+    bridge_cfg.rs485_baud = PLC_RS485_TEST_BAUD;
     bridge_cfg.rs485_uart_num = RS485_UART_PORT;
     bridge_cfg.slave_id = 0xF7;          /* ID 247: gateway local (control de relés vía coils) */
     bridge_cfg.enable_filter = true;     /* Las tramas a 0xF7 se procesan local (no van al bus RS485) */
@@ -173,6 +267,12 @@ extern "C" void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Puente RS485 no iniciado: %s", esp_err_to_name(ret));
     }
+
+#if PLC_RS485_TEST_ENABLE
+    if (ret == ESP_OK) {
+        xTaskCreate(plc_rs485_test_task, "plc_rs485_test", 4096, nullptr, 4, nullptr);
+    }
+#endif
 
     /* ——— 7. Inicializar CAN bus (opcional) ——— */
     can_bus_config_t can_cfg = can_bus_get_default_config();

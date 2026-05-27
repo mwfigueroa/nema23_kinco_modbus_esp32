@@ -59,6 +59,14 @@ bridge_mode_t bridge_rs485_get_mode(void);
 esp_err_t bridge_rs485_send(const uint8_t *data, size_t len);
 
 /**
+ * Ejecuta una transaccion Modbus RTU directa sobre RS485.
+ * La peticion debe incluir CRC. La respuesta se devuelve completa, con CRC.
+ */
+esp_err_t bridge_rs485_transact(const uint8_t *request, size_t request_len,
+                                uint8_t *response, size_t response_capacity,
+                                size_t *response_len, uint32_t timeout_ms);
+
+/**
  * Cola de comandos recibidos por Modbus TCP que deben procesarse localmente.
  * Cada elemento es una trama Modbus RTU completa.
  */

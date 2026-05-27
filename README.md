@@ -64,6 +64,19 @@ directorio:
 .\scripts\build.ps1 -BuildDir build
 ```
 
+Para evitar flashear un firmware viejo, tambien se puede compilar en una carpeta
+explicita y usar esa misma carpeta al flashear:
+
+```powershell
+. .\scripts\ensure_idf.ps1
+Import-EspIdfEnvironment
+idf.py -B build_codex build
+idf.py -B build_codex -p COM4 flash
+```
+
+El ultimo flash validado se hizo en `COM4` usando `build_codex/nema23_lilygo.bin`.
+En el panel web, la UI nueva se identifica como `UI: plc-32bit-v1`.
+
 ### 2. Flashear y monitorear
 
 ```powershell
@@ -116,6 +129,34 @@ que la placa trae cerca del USB-C, y dejar el USB para datos/monitor.
 {"cmd": "enable",      "arg": 1}
 {"cmd": "rs485_mode"}
 {"cmd": "can_mode"}
+{"cmd": "plc_send_step"}
+{"cmd": "plc_read_vw"}
+```
+
+### Comandos PLC Kinco desde HTTP
+
+El panel web incluye dos botones para probar la comunicacion con el PLC Kinco
+`MK043E-20DT` por RS485/Modbus RTU:
+
+| Boton / comando | Accion |
+|-----------------|--------|
+| `PLC Steps -> VW0/VW2` / `{"cmd":"plc_send_step"}` | Escribe la posicion actual del NEMA23 como entero de 32 bits en `%VD0` |
+| `Leer VW0 / VW2` / `{"cmd":"plc_read_vw"}` | Lee `%VW0` y `%VW2`, y reconstruye el valor DINT |
+
+Respuesta de lectura esperada:
+
+```json
+{
+  "result": "ok",
+  "cmd": "plc_read_vw",
+  "plc_slave": 1,
+  "vw0_register": 100,
+  "vw0": 0,
+  "vw2_register": 101,
+  "vw2": 1234,
+  "plc_value_32": 1234,
+  "read_status": "lectura_ok"
+}
 ```
 
 ### Ejemplo TCP/IP: avanzar 1000 pasos con velocidad
@@ -162,6 +203,45 @@ Invoke-RestMethod `
 
 Reemplazar `<IP_STA>` por la IP DHCP que aparece en el monitor serie como
 `WiFi STA IP: x.x.x.x`.
+
+## PLC Kinco MK043E-20DT por RS485
+
+El gateway puede hablar directamente con el PLC Kinco por Modbus RTU usando el
+bus RS485. La comunicacion directa usa `bridge_rs485_transact()`, protegida con
+mutex para no pisarse con el puente Modbus TCP -> RS485.
+
+Configuracion usada actualmente:
+
+| Parametro | Valor |
+|-----------|-------|
+| Slave ID PLC | `1` |
+| Baudrate | `9600` |
+| Formato serie | `8N1` |
+| Lectura | FC03 Read Holding Registers |
+| Escritura 32 bits | FC16 Write Multiple Registers |
+
+Mapa Kinco probado:
+
+| Variable Kinco | Registro Modbus | Uso |
+|----------------|-----------------|-----|
+| `%VW0` | `100` | Word alto de `%VD0` |
+| `%VW2` | `101` | Word bajo de `%VD0` |
+| `%VD0` | `100` + `101` | DINT de 32 bits |
+
+La ESP escribe la posicion del NEMA23 como `int32_t` en `%VD0`:
+
+- `%VW0` recibe `(pos >> 16)`.
+- `%VW2` recibe `(pos & 0xFFFF)`.
+
+Al leer, la ESP reconstruye:
+
+```c
+plc_value_32 = ((uint32_t)VW0 << 16) | VW2;
+```
+
+Programa basico para cargar en KincoBuilder:
+
+- [`Info/KincoBuilder_MK043E-20DT_programa_basico.md`](Info/KincoBuilder_MK043E-20DT_programa_basico.md)
 
 ## Modos de puente
 
@@ -227,6 +307,10 @@ nema23_lilygo/
 │   └── stepper_motor_encoder.c/h <- RMT encoder
 ├── components/
 │   └── FastAccelStepper/        <- Librería de aceleración
+├── Info/
+│   ├── KincoBuilder_MK043E-20DT_programa_basico.md
+│   ├── Kinco_K5_Software_Manual_20210510.pdf
+│   └── Kinco_MK043E-20DT_Spec_Sheet.pdf
 └── scripts/
     ├── build.ps1
     ├── flash_monitor.ps1
@@ -241,10 +325,10 @@ nema23_lilygo/
 - Driver NEMA23 externo (DM542, TB6600 o similar)
 - Fuente de alimentación adecuada para el motor
 
-## Estado de revisión (2026-05-25)
+## Estado de revision (2026-05-27)
 
-Revisión técnica de factibilidad. El proyecto compila (`build_marti/nema23_lilygo.bin`)
-y la arquitectura es sólida. Se corrigieron los siguientes **bugs bloqueantes**
+Revision tecnica de factibilidad. El proyecto compila (`build_codex/nema23_lilygo.bin`)
+y la arquitectura es solida. Se corrigieron los siguientes **bugs bloqueantes**
 que impedían que el hardware funcionara; el pinout fue verificado contra el repo
 oficial [Xinyuan-LilyGO/T-CAN485](https://github.com/Xinyuan-LilyGO/T-CAN485).
 
@@ -267,6 +351,14 @@ oficial [Xinyuan-LilyGO/T-CAN485](https://github.com/Xinyuan-LilyGO/T-CAN485).
    parsea el JSON y enruta a `stepper_control_*` / `bridge_rs485_set_mode`, y
    `GET /api/status` reporta posición/velocidad/estado reales.
    → [`wifi_manager.cpp`](main/wifi_manager.cpp)
+5. **Acceso local al PLC Kinco por RS485.** Se agrego `bridge_rs485_transact()`
+   con mutex de UART para que el HTTP server pueda hacer transacciones Modbus
+   RTU directas sin chocar con el puente TCP -> RS485.
+   -> [`bridge_rs485.cpp`](main/bridge_rs485.cpp)
+6. **Lectura/escritura de posicion NEMA23 en PLC Kinco.** El comando
+   `plc_send_step` escribe `%VD0` como DINT de 32 bits usando `%VW0/%VW2`
+   con FC16; `plc_read_vw` lee ambos words con FC03 y reconstruye
+   `plc_value_32`. -> [`wifi_manager.cpp`](main/wifi_manager.cpp)
 
 ### Pendiente (TODOs conocidos, no bloqueantes para arrancar)
 

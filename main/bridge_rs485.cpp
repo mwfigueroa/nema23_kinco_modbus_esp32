@@ -18,6 +18,7 @@
 #include "driver/gpio.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "freertos/semphr.h"
 #include <cstring>
 #include <cstdio>
 
@@ -26,6 +27,7 @@ static const char *TAG = "bridge_rs485";
 static bridge_config_t s_bridge_config = {};
 static QueueHandle_t s_rx_queue = nullptr;
 static TaskHandle_t s_tcp_task = nullptr;
+static SemaphoreHandle_t s_uart_mutex = nullptr;
 static bool s_running = false;
 
 /* ================================================================
@@ -107,6 +109,39 @@ static esp_err_t rs485_uart_init(void)
      * en este cableado). */
     ret = uart_set_mode((uart_port_t)s_bridge_config.rs485_uart_num, UART_MODE_UART);
     return ret;
+}
+
+static esp_err_t rs485_transact_locked(const uint8_t *request, size_t request_len,
+                                       uint8_t *response, size_t response_capacity,
+                                       size_t *response_len, uint32_t timeout_ms)
+{
+    if (!request || request_len == 0 || !response || response_capacity == 0 || !response_len) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *response_len = 0;
+
+    uart_port_t uart = (uart_port_t)s_bridge_config.rs485_uart_num;
+    uart_flush_input(uart);
+
+    int written = uart_write_bytes(uart, request, request_len);
+    if (written != (int)request_len) {
+        return ESP_FAIL;
+    }
+
+    esp_err_t ret = uart_wait_tx_done(uart, pdMS_TO_TICKS(timeout_ms));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    int rx_len = uart_read_bytes(uart, response, response_capacity,
+                                 pdMS_TO_TICKS(timeout_ms));
+    if (rx_len <= 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    *response_len = (size_t)rx_len;
+    return ESP_OK;
 }
 
 /* ================================================================
@@ -372,15 +407,18 @@ static void tcp_server_task(void *arg)
                 int recv_len = recv(client_sock, tcp_buf, sizeof(tcp_buf), 0);
                 if (recv_len <= 0) break;
 
-                uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
-                                 tcp_buf, recv_len);
+                if (s_uart_mutex && xSemaphoreTake(s_uart_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                    uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
+                                     tcp_buf, recv_len);
 
-                uint8_t resp[256];
-                int resp_len = uart_read_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
-                                               resp, sizeof(resp),
-                                               pdMS_TO_TICKS(200));
-                if (resp_len > 0) {
-                    send(client_sock, resp, resp_len, 0);
+                    uint8_t resp[256];
+                    int resp_len = uart_read_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
+                                                   resp, sizeof(resp),
+                                                   pdMS_TO_TICKS(200));
+                    xSemaphoreGive(s_uart_mutex);
+                    if (resp_len > 0) {
+                        send(client_sock, resp, resp_len, 0);
+                    }
                 }
                 continue;
             }
@@ -425,15 +463,15 @@ static void tcp_server_task(void *arg)
                 /* Forward al bus RS485 */
                 size_t rtu_len;
                 if (modbus_tcp_to_rtu(tcp_buf, tcp_frame_len, rtu_buf, &rtu_len) == ESP_OK) {
-                    uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
-                                     rtu_buf, rtu_len);
-
-                    /* Esperar respuesta del bus RS485 */
                     uint8_t resp[256];
-                    int resp_len = uart_read_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
-                                                   resp, sizeof(resp),
-                                                   pdMS_TO_TICKS(200));
-                    if (resp_len > 0) {
+                    size_t resp_len = 0;
+                    esp_err_t tx_ret = ESP_ERR_TIMEOUT;
+                    if (s_uart_mutex && xSemaphoreTake(s_uart_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                        tx_ret = rs485_transact_locked(rtu_buf, rtu_len, resp, sizeof(resp),
+                                                       &resp_len, 200);
+                        xSemaphoreGive(s_uart_mutex);
+                    }
+                    if (tx_ret == ESP_OK && resp_len > 0) {
                         /* Envolver en TCP y devolver */
                         uint8_t tcp_resp[260];
                         size_t tcp_resp_len;
@@ -479,6 +517,12 @@ esp_err_t bridge_rs485_init(const bridge_config_t *config)
         return ESP_ERR_NO_MEM;
     }
 
+    s_uart_mutex = xSemaphoreCreateMutex();
+    if (!s_uart_mutex) {
+        ESP_LOGE(TAG, "Error creando mutex UART RS485");
+        return ESP_ERR_NO_MEM;
+    }
+
     /* Arrancar servidor TCP */
     xTaskCreate(tcp_server_task, "bridge_tcp", 6144, nullptr, 5, &s_tcp_task);
 
@@ -501,9 +545,29 @@ bridge_mode_t bridge_rs485_get_mode(void)
 
 esp_err_t bridge_rs485_send(const uint8_t *data, size_t len)
 {
+    if (!data || len == 0) return ESP_ERR_INVALID_ARG;
+    if (!s_uart_mutex || xSemaphoreTake(s_uart_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
     int written = uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
-                                    data, len);
+                                   data, len);
+    xSemaphoreGive(s_uart_mutex);
     return (written == len) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t bridge_rs485_transact(const uint8_t *request, size_t request_len,
+                                uint8_t *response, size_t response_capacity,
+                                size_t *response_len, uint32_t timeout_ms)
+{
+    if (!s_uart_mutex || xSemaphoreTake(s_uart_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t ret = rs485_transact_locked(request, request_len, response,
+                                          response_capacity, response_len,
+                                          timeout_ms);
+    xSemaphoreGive(s_uart_mutex);
+    return ret;
 }
 
 QueueHandle_t bridge_rs485_get_rx_queue(void)

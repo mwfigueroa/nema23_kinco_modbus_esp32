@@ -27,6 +27,161 @@ static esp_netif_t *s_ap_netif = nullptr;
 static esp_netif_t *s_sta_netif = nullptr;
 
 /* ================================================================
+ * Prueba PLC Kinco por Modbus RTU
+ * ================================================================ */
+
+#define PLC_STEP_SLAVE_ID       1
+#define PLC_STEP_REGISTER       100     /* Kinco K5: VW0 como holding register de prueba */
+#define PLC_VW2_REGISTER        101     /* VW2: word bajo de la variable de 32 bits */
+#define PLC_STEP_TIMEOUT_MS     500
+
+static uint16_t modbus_crc16_local(const uint8_t *buf, size_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= buf[i];
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x0001) ? (uint16_t)((crc >> 1) ^ 0xA001) : (uint16_t)(crc >> 1);
+        }
+    }
+    return crc;
+}
+
+static size_t modbus_append_crc(uint8_t *frame, size_t len_without_crc)
+{
+    uint16_t crc = modbus_crc16_local(frame, len_without_crc);
+    frame[len_without_crc] = (uint8_t)(crc & 0xFF);
+    frame[len_without_crc + 1] = (uint8_t)(crc >> 8);
+    return len_without_crc + 2;
+}
+
+static bool modbus_crc_ok(const uint8_t *frame, size_t len)
+{
+    if (len < 4) return false;
+    uint16_t rx_crc = (uint16_t)frame[len - 2] | ((uint16_t)frame[len - 1] << 8);
+    return rx_crc == modbus_crc16_local(frame, len - 2);
+}
+
+static esp_err_t plc_write_holding_registers(uint16_t start_reg, const uint16_t *values,
+                                             uint16_t quantity, uint8_t *exception_code)
+{
+    if (!values || quantity == 0 || quantity > 16) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (exception_code) *exception_code = 0;
+
+    uint8_t req[40] = {};
+    size_t payload_len = 7 + (size_t)quantity * 2;
+    if (payload_len + 2 > sizeof(req)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    req[0] = PLC_STEP_SLAVE_ID;
+    req[1] = 0x10;
+    req[2] = (uint8_t)(start_reg >> 8);
+    req[3] = (uint8_t)(start_reg & 0xFF);
+    req[4] = (uint8_t)(quantity >> 8);
+    req[5] = (uint8_t)(quantity & 0xFF);
+    req[6] = (uint8_t)(quantity * 2);
+    for (uint16_t i = 0; i < quantity; i++) {
+        req[7 + i * 2] = (uint8_t)(values[i] >> 8);
+        req[8 + i * 2] = (uint8_t)(values[i] & 0xFF);
+    }
+    size_t req_len = modbus_append_crc(req, payload_len);
+
+    uint8_t resp[64] = {};
+    size_t resp_len = 0;
+    esp_err_t ret = bridge_rs485_transact(req, req_len, resp, sizeof(resp),
+                                          &resp_len, PLC_STEP_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (!modbus_crc_ok(resp, resp_len)) {
+        return ESP_ERR_INVALID_CRC;
+    }
+
+    if (resp_len >= 5 && resp[0] == PLC_STEP_SLAVE_ID && resp[1] == (0x10 | 0x80)) {
+        if (exception_code) *exception_code = resp[2];
+        return ESP_FAIL;
+    }
+
+    if (resp_len != 8 || resp[0] != PLC_STEP_SLAVE_ID || resp[1] != 0x10 ||
+        resp[2] != (uint8_t)(start_reg >> 8) || resp[3] != (uint8_t)(start_reg & 0xFF) ||
+        resp[4] != (uint8_t)(quantity >> 8) || resp[5] != (uint8_t)(quantity & 0xFF)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t plc_write_int32_vw0_vw2(int32_t value, uint8_t *exception_code)
+{
+    uint32_t raw = (uint32_t)value;
+    uint16_t words[2] = {
+        (uint16_t)(raw >> 16),       /* VW0: word alto */
+        (uint16_t)(raw & 0xFFFF),    /* VW2: word bajo */
+    };
+    return plc_write_holding_registers(PLC_STEP_REGISTER, words, 2, exception_code);
+}
+
+static esp_err_t plc_read_holding_registers(uint16_t start_reg, uint16_t quantity,
+                                            uint16_t *values, uint8_t *exception_code)
+{
+    if (!values || quantity == 0 || quantity > 16) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (exception_code) *exception_code = 0;
+
+    uint8_t req[8] = {
+        PLC_STEP_SLAVE_ID,
+        0x03,
+        (uint8_t)(start_reg >> 8),
+        (uint8_t)(start_reg & 0xFF),
+        (uint8_t)(quantity >> 8),
+        (uint8_t)(quantity & 0xFF),
+        0,
+        0,
+    };
+    size_t req_len = modbus_append_crc(req, 6);
+
+    uint8_t resp[64] = {};
+    size_t resp_len = 0;
+    esp_err_t ret = bridge_rs485_transact(req, req_len, resp, sizeof(resp),
+                                          &resp_len, PLC_STEP_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (!modbus_crc_ok(resp, resp_len)) {
+        return ESP_ERR_INVALID_CRC;
+    }
+
+    if (resp_len >= 5 && resp[0] == PLC_STEP_SLAVE_ID && resp[1] == (0x03 | 0x80)) {
+        if (exception_code) *exception_code = resp[2];
+        return ESP_FAIL;
+    }
+
+    size_t expected_len = 5 + (size_t)quantity * 2;
+    if (resp_len != expected_len || resp[0] != PLC_STEP_SLAVE_ID ||
+        resp[1] != 0x03 || resp[2] != quantity * 2) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    for (uint16_t i = 0; i < quantity; i++) {
+        values[i] = ((uint16_t)resp[3 + i * 2] << 8) | resp[4 + i * 2];
+    }
+
+    return ESP_OK;
+}
+
+static int32_t plc_words_to_int32(uint16_t vw0, uint16_t vw2)
+{
+    uint32_t raw = ((uint32_t)vw0 << 16) | vw2;
+    return (int32_t)raw;
+}
+
+/* ================================================================
  * Handlers HTTP
  * ================================================================ */
 
@@ -113,6 +268,59 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
         r = bridge_rs485_set_mode(BRIDGE_MODE_MODBUS_TCP_RS485);
     } else if (strcmp(cmd, "can_mode") == 0) {
         r = bridge_rs485_set_mode(BRIDGE_MODE_LOCAL_ONLY);
+    } else if (strcmp(cmd, "plc_send_step") == 0) {
+        int32_t pos = stepper_control_get_position();
+        uint8_t exception_code = 0;
+        uint16_t vw0 = (uint16_t)((uint32_t)pos >> 16);
+        uint16_t vw2 = (uint16_t)((uint32_t)pos & 0xFFFF);
+        r = plc_write_int32_vw0_vw2(pos, &exception_code);
+
+        if (r == ESP_OK) {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"ok\",\"cmd\":\"%s\",\"pos\":%ld,"
+                     "\"plc_slave\":%u,\"plc_register\":%u,\"plc_value_32\":%ld,"
+                     "\"vw0_register\":%u,\"vw0\":%u,"
+                     "\"vw2_register\":%u,\"vw2\":%u}",
+                     cmd, (long)pos, PLC_STEP_SLAVE_ID, PLC_STEP_REGISTER, (long)pos,
+                     PLC_STEP_REGISTER, vw0,
+                     PLC_VW2_REGISTER, vw2);
+        } else {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"pos\":%ld,"
+                     "\"plc_slave\":%u,\"plc_register\":%u,\"plc_value_32\":%ld,"
+                     "\"exception\":%u,\"err\":\"%s\"}",
+                     cmd, (long)pos, PLC_STEP_SLAVE_ID, PLC_STEP_REGISTER, (long)pos,
+                     exception_code, esp_err_to_name(r));
+        }
+        return;
+    } else if (strcmp(cmd, "plc_read_vw") == 0) {
+        uint16_t values[2] = {};
+        uint8_t exception_code = 0;
+        r = plc_read_holding_registers(PLC_STEP_REGISTER, 2, values, &exception_code);
+
+        if (r == ESP_OK) {
+            int32_t plc_value_32 = plc_words_to_int32(values[0], values[1]);
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"ok\",\"cmd\":\"%s\",\"plc_slave\":%u,"
+                     "\"vw0_register\":%u,\"vw0\":%u,"
+                     "\"vw2_register\":%u,\"vw2\":%u,"
+                     "\"plc_value_32\":%ld,"
+                     "\"read_status\":\"lectura_ok\"}",
+                     cmd, PLC_STEP_SLAVE_ID,
+                     PLC_STEP_REGISTER, values[0],
+                     PLC_VW2_REGISTER, values[1],
+                     (long)plc_value_32);
+        } else {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"plc_slave\":%u,"
+                     "\"vw0_register\":%u,\"vw2_register\":%u,"
+                     "\"exception\":%u,\"err\":\"%s\","
+                     "\"read_status\":\"lectura_error\"}",
+                     cmd, PLC_STEP_SLAVE_ID,
+                     PLC_STEP_REGISTER, PLC_VW2_REGISTER,
+                     exception_code, esp_err_to_name(r));
+        }
+        return;
     } else {
         known = false;
     }
@@ -158,7 +366,7 @@ static esp_err_t http_post_command_handler(httpd_req_t *req)
     buf[ret] = '\0';
     ESP_LOGI(TAG, "Comando recibido: %s", buf);
 
-    char resp[220];
+    char resp[512];
     dispatch_command(buf, resp, sizeof(resp));
 
     httpd_resp_set_type(req, "application/json");
@@ -175,12 +383,15 @@ static esp_err_t http_get_root_handler(httpd_req_t *req)
         "<style>body{font-family:sans-serif;max-width:600px;margin:2em auto;padding:0 1em;background:#1a1a2e;color:#e0e0e0}"
         "h1{color:#e94560}button{background:#0f3460;color:white;border:none;padding:12px 24px;margin:4px;border-radius:6px;cursor:pointer;font-size:16px}"
         "button:hover{background:#e94560}.status{background:#16213e;padding:1em;border-radius:8px;margin:1em 0}"
+        ".plc{margin-top:8px;color:#9ff}"
+        ".ver{font-size:12px;color:#9aa;margin-top:10px}"
         ".row{display:flex;gap:8px;flex-wrap:wrap}"
         "input{background:#0f3460;color:white;border:1px solid #e94560;padding:8px 12px;border-radius:6px;width:100px}"
         "</style></head><body>"
         "<h1>⚙️ NEMA23 Gateway</h1>"
         "<div class='status'><strong>Estado:</strong> <span id='status'>Online</span><br>"
         "<strong>Posición:</strong> <span id='pos'>0</span> steps</div>"
+        "<div class='plc'><strong>PLC:</strong> <span id='plc_status'>Sin lectura</span></div>"
         "<div class='row'>"
         "<button onclick='send(\"move_rel\",1000)'>▶ +1000</button>"
         "<button onclick='send(\"move_rel\",-1000)'>◀ -1000</button>"
@@ -198,11 +409,20 @@ static esp_err_t http_get_root_handler(httpd_req_t *req)
         "<button onclick='send(\"rs485_mode\")'>🔀 RS485</button>"
         "<button onclick='send(\"can_mode\")'>🔀 CAN</button>"
         "</div>"
+        "<div class='row' style='margin-top:8px'>"
+        "<button onclick='send(\"plc_send_step\")'>PLC Steps -> VW0/VW2</button>"
+        "<button onclick='send(\"plc_read_vw\")'>Leer VW0 / VW2</button>"
+        "</div>"
+        "<div class='ver'>UI: plc-32bit-v1</div>"
         "<script>async function send(cmd,arg){let b={cmd:cmd};if(arg)b.arg=arg;"
         "let r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});"
-        "let j=await r.json();document.getElementById('status').textContent=JSON.stringify(j)}"
+        "let j=await r.json();document.getElementById('status').textContent=JSON.stringify(j);"
+        "if(cmd==='plc_read_vw'){let el=document.getElementById('plc_status');"
+        "el.textContent=j.result==='ok'?'OK DINT='+j.plc_value_32+' VW0='+j.vw0+' VW2='+j.vw2:'ERROR '+(j.err||'sin respuesta')}}"
         "</script></body></html>";
     httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
     httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
