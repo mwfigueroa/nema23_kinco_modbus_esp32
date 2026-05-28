@@ -83,3 +83,4 @@ en otra red de ladder.
 ## Nota de direccionamiento
 
 El manual Kinco K5 indica que el area `V` es accesible por Modbus como AI/AO, y que `%VW0 --- %VW4094` corresponde a registros Modbus `100 --- 2147`.
+
