@@ -1,0 +1,272 @@
+(*2*)
+(* Network 0 *)
+LD    %SM0.0
+R    %SM201.3
+(* Network 1 *)
+LD    %SM0.0
+R    %SM231.3
+(* Network 2 *)
+LD    %SM0.1
+MOVE    DI#0, A0_Param_POS
+(* Network 3 *)
+LD    %SM0.1
+MOVE    DW#2000, A0_Param_MAXF_PABS
+(* Network 4 *)
+LD    %SM0.1
+MOVE    W#300, A0_Param_MINF_PABS
+(* Network 5 *)
+LD    %SM0.1
+MOVE    W#300, A0_Param_TIME_PAB
+(* Network 6 *)
+LD    %SM0.1
+MOVE    I#1, A0_Param_MODE_HOME
+(* Network 7 *)
+LD    %SM0.1
+MOVE    I#0, A0_Param_DIRC_HOME
+(* Network 8 *)
+LD    %SM0.1
+MOVE    W#200, A0_Param_MINF_HOME
+(* Network 9 *)
+LD    %SM0.1
+MOVE    DW#1000, A0_Param_MAXF_HOME
+(* Network 10 *)
+LD    %SM0.1
+MOVE    W#300, A0_Param_TIME_HOME
+(* Network 11 *)
+LD    %SM0.1
+R    %M10.6
+(* Network 12 *)
+LD    %SM0.1
+R    %M10.0
+(* Network 13 *)
+LD    %SM0.1
+MOVE    DI#0, A1_Param_POS
+(* Network 14 *)
+LD    %SM0.1
+MOVE    DW#2000, A1_Param_MAXF_PABS
+(* Network 15 *)
+LD    %SM0.1
+MOVE    W#300, A1_Param_MINF_PABS
+(* Network 16 *)
+LD    %SM0.1
+MOVE    W#300, A1_Param_TIME_PABS
+(* Network 17 *)
+LD    %SM0.1
+MOVE    I#1, A1_Param_MODE_HOME
+(* Network 18 *)
+LD    %SM0.1
+MOVE    I#0, A1_Param_DIRC_HOME
+(* Network 19 *)
+LD    %SM0.1
+MOVE    W#200, A1_Param_MINF_HOME
+(* Network 20 *)
+LD    %SM0.1
+MOVE    DW#1000, A1_Param_MAXF_HOME
+(* Network 21 *)
+LD    %SM0.1
+MOVE    W#300, A1_Param_TIME_HOME
+(* Network 22 *)
+LD    %SM0.1
+R    %M20.6
+(* Network 23 *)
+LD    %SM0.1
+R    %M20.0
+(* Network 24 *)
+LD    %V100.0
+ST   %Q0.4
+(* Network 25 *)
+LD    %V200.0
+ST   %Q0.5
+(* Network 26 *)
+LD    %V100.1
+ST   %SM201.6
+(* Network 27 *)
+LD    %V200.1
+ST   %SM231.6
+(* Network 28 *)
+LD    %SM0.0
+PSTOP    0, A0_Ctrl_Stop, A0_M_StopDone, A0_ErrID_STOP
+(* Network 29 *)
+LD    %SM0.0
+PSTOP    1, A1_Ctrl_Stop, A1_M_StopDone, A1_ErrID_STOP
+(* Network 30 *)
+LD    %V100.2
+OR    %V100.3
+R    %SM201.7
+(* Network 31 *)
+LD    %V200.2
+OR    %V200.3
+R    %SM231.7
+(* Network 32 *)
+LD    %V100.0
+PHOME    0, A0_Ctrl_StartHome, A0_HOME_SENSOR, A0_M_NHOME, A0_Param_MODE_HOME, A0_Param_DIRC_HOME, A0_Param_MINF_HOME, A0_Param_MAXF_HOME, A0_Param_TIME_HOME, A0_M_HomeDone, A0_M_HomeErr, A0_ErrID_HOME
+(* Network 33 *)
+LD    %V200.0
+PHOME    1, A1_Ctrl_StartHome, A1_HOME_SENSOR, A1_M_NHOME, A1_Param_MODE_HOME, A1_Param_DIRC_HOME, A1_Param_MINF_HOME, A1_Param_MAXF_HOME, A1_Param_TIME_HOME, A1_M_HomeDone, A1_M_HomeErr, A1_ErrID_HOME
+(* Network 34 *)
+LDN    %M12.2
+AND    %M12.1
+S    %M10.0
+(* Network 35 *)
+LDN    %M22.2
+AND    %M22.1
+S    %M20.0
+(* Network 36 *)
+LD    %V100.4
+OR    %V100.1
+R    %M10.0
+(* Network 37 *)
+LD    %V200.4
+OR    %V200.1
+R    %M20.0
+(* Network 38 *)
+LDN    %M12.2
+ST   %M10.4
+(* Network 39 *)
+LDN    %M11.2
+ST   %M10.5
+(* Network 40 *)
+LD    %V100.0
+AND    %M10.0
+AND    %M10.4
+AND    %M10.5
+ST   %M10.3
+(* Network 41 *)
+LDN    %M22.2
+ST   %M20.4
+(* Network 42 *)
+LDN    %M21.2
+ST   %M20.5
+(* Network 43 *)
+LD    %V200.0
+AND    %M20.0
+AND    %M20.4
+AND    %M20.5
+ST   %M20.3
+(* Network 44 *)
+LD    %M10.3
+PABS    0, A0_Ctrl_StartPABS, A0_Param_MINF_PABS, A0_Param_MAXF_PABS, A0_Param_TIME_PAB, A0_Param_POS, A0_M_PabsDone, A0_M_PabsErr, A0_ErrID_PABS
+(* Network 45 *)
+LD    %M20.3
+PABS    1, A1_Ctrl_StartPABS, A1_Param_MINF_PABS, A1_Param_MAXF_PABS, A1_Param_TIME_PABS, A1_Param_POS, A1_M_PabsDone, A1_M_PabsErr, A1_ErrID_PABS
+(* Network 46 *)
+LD    %V100.3
+AND    %V100.0
+S    %M10.1
+(* Network 47 *)
+LD    %V200.3
+AND    %V200.0
+S    %M20.1
+(* Network 48 *)
+LD    %M12.1
+OR    %M12.2
+OR    %V100.5
+OR    %V100.4
+R    %M10.1
+(* Network 49 *)
+LD    %M22.1
+OR    %M22.2
+OR    %V200.5
+OR    %V200.4
+R    %M20.1
+(* Network 50 *)
+LD    %V100.2
+AND    %M10.3
+S    %M10.2
+(* Network 51 *)
+LD    %V200.2
+AND    %M20.3
+S    %M20.2
+(* Network 52 *)
+LD    %M11.1
+OR    %M11.2
+OR    %V100.5
+OR    %V100.4
+R    %M10.2
+(* Network 53 *)
+LD    %M21.1
+OR    %M21.2
+OR    %V200.5
+OR    %V200.4
+R    %M20.2
+(* Network 54 *)
+LD    %SM0.0
+MOVE    %SMD212, A0_Status_PosActual
+(* Network 55 *)
+LD    %SM0.0
+MOVE    %SMD242, A1_Status_PosActual
+(* Network 56 *)
+LD    %M10.0
+ST   %V130.0
+(* Network 57 *)
+LD    %M12.1
+ST   %V130.1
+(* Network 58 *)
+LD    %M12.2
+ST   %V130.2
+(* Network 59 *)
+LD    %M11.1
+ST   %V130.3
+(* Network 60 *)
+LD    %M11.2
+ST   %V130.4
+(* Network 61 *)
+LD    %M10.1
+OR    %M10.2
+ST   %V130.5
+(* Network 62 *)
+LD    %M10.1
+ST   %V130.6
+(* Network 63 *)
+LD    %M10.2
+ST   %V130.7
+(* Network 64 *)
+LD    %I0.0
+ST   %V131.0
+(* Network 65 *)
+LD    %M10.3
+ST   %V131.1
+(* Network 66 *)
+LD    %Q0.4
+ST   %V131.2
+(* Network 67 *)
+LD    %M13.0
+ST   %V131.3
+(* Network 68 *)
+LD    %M20.0
+ST   %V230.0
+(* Network 69 *)
+LD    %M22.1
+ST   %V230.1
+(* Network 70 *)
+LD    %M22.2
+ST   %V230.2
+(* Network 71 *)
+LD    %M21.1
+ST   %V230.3
+(* Network 72 *)
+LD    %M21.2
+ST   %V230.4
+(* Network 73 *)
+LD    %M20.1
+OR    %M20.2
+ST   %V230.5
+(* Network 74 *)
+LD    %M20.1
+ST   %V230.6
+(* Network 75 *)
+LD    %M20.2
+ST   %V230.7
+(* Network 76 *)
+LD    %I0.1
+ST   %V231.0
+(* Network 77 *)
+LD    %M20.3
+ST   %V231.1
+(* Network 78 *)
+LD    %Q0.5
+ST   %V231.2
+(* Network 79 *)
+LD    %M23.0
+ST   %V231.3
+END
