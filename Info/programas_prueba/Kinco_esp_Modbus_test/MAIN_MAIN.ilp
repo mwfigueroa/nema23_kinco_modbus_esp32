@@ -1,0 +1,163 @@
+(*2*)
+(* Network 0 *)
+LD    %SM0.0
+R    %SM201.3
+(* Network 1 *)
+LD    %SM0.1
+MOVE    DI#0, Param_POS
+(* Network 2 *)
+LD    %SM0.1
+MOVE    DW#2000, Param_MAXF_PABS
+(* Network 3 *)
+LD    %SM0.1
+MOVE    W#300, Param_MINF_PABS
+(* Network 4 *)
+LD    %SM0.1
+MOVE    W#300, Param_TIME_PABS
+(* Network 5 *)
+LD    %SM0.1
+MOVE    I#1, Param_MODE_HOME
+(* Network 6 *)
+LD    %SM0.1
+MOVE    I#0, Param_DIRC_HOME
+(* Network 7 *)
+LD    %SM0.1
+MOVE    W#200, Param_MINF_HOME
+(* Network 8 *)
+LD    %SM0.1
+MOVE    DW#1000, Param_MAXF_HOME
+(* Network 9 *)
+LD    %SM0.1
+MOVE    W#300, Param_TIME_HOME
+(* Network 10 *)
+LD    %SM0.1
+MOVE    W#0, Status_Err_PABS_STOP
+(* Network 11 *)
+LD    %SM0.1
+MOVE    W#0, Status_Err_HOME
+(* Network 12 *)
+LD    %SM0.1
+R    %M10.0
+(* Network 13 *)
+LD    %SM0.1
+R    %M1.0
+(* Network 14 *)
+LD    %SM0.1
+R    %M1.1
+(* Network 15 *)
+LD    %SM0.1
+R    %M1.2
+(* Network 16 *)
+LD    %SM0.1
+R    %SM201.7
+(* Network 17 *)
+LD    %V138.0
+ST   %Q0.3
+(* Network 18 *)
+LD    %V138.1
+ST   %SM201.6
+(* Network 19 *)
+LD    %SM0.0
+PSTOP    0, Ctrl_Stop, M_StopDone, ErrID_STOP
+(* Network 20 *)
+LD    %V138.2
+OR    %V138.3
+R    %SM201.7
+(* Network 21 *)
+LD    %V138.0
+PHOME    0, Ctrl_StartHome, Hw_HomeSensor, M_NHOME, Param_MODE_HOME, Param_DIRC_HOME, Param_MINF_HOME, Param_MAXF_HOME, Param_TIME_HOME, M_HomeDone, M_HomeErr, ErrID_HOME
+(* Network 22 *)
+LDN    %M3.2
+AND    %M3.1
+S    %M1.0
+(* Network 23 *)
+LD    %V138.4
+OR    %V138.1
+R    %M1.0
+(* Network 24 *)
+LDN    %M3.2
+ST   %M1.4
+(* Network 25 *)
+LDN    %M2.2
+ST   %M1.5
+(* Network 26 *)
+LD    %V138.0
+AND    %M1.0
+AND    %M1.4
+AND    %M1.5
+ST   %M1.3
+(* Network 27 *)
+LD    %M1.3
+PABS    0, Ctrl_StartPABS, Param_MINF_PABS, Param_MAXF_PABS, Param_TIME_PABS, Param_POS, M_PabsDone, M_PabsErr, ErrID_PABS
+(* Network 28 *)
+LD    %V138.3
+AND    %V138.0
+S    %M1.1
+(* Network 29 *)
+LD    %M3.1
+OR    %M3.2
+OR    %V138.5
+OR    %V138.4
+R    %M1.1
+(* Network 30 *)
+LD    %V138.2
+AND    %M1.3
+S    %M1.2
+(* Network 31 *)
+LD    %M2.1
+OR    %M2.2
+OR    %V138.5
+OR    %V138.4
+R    %M1.2
+(* Network 32 *)
+LD    %V138.4
+MOVE    W#0, Status_Err_PABS_STOP
+(* Network 33 *)
+LD    %V138.4
+MOVE    W#0, Status_Err_HOME
+(* Network 34 *)
+LD    %SM0.0
+MOVE    %SMD212, Status_PosActual
+(* Network 35 *)
+LD    %M1.0
+ST   %V302.0
+(* Network 36 *)
+LD    %M3.1
+ST   %V302.1
+(* Network 37 *)
+LD    %M3.2
+ST   %V302.2
+(* Network 38 *)
+LD    %M2.1
+ST   %V302.3
+(* Network 39 *)
+LD    %M2.2
+ST   %V302.4
+(* Network 40 *)
+LD    %SM66.7
+ST   %V302.5
+(* Network 41 *)
+LD    %M1.1
+ST   %V302.6
+(* Network 42 *)
+LD    %M1.2
+ST   %V302.7
+(* Network 43 *)
+LD    %I0.0
+ST   %V303.0
+(* Network 44 *)
+LD    %M1.3
+ST   %V303.1
+(* Network 45 *)
+LD    %Q0.3
+ST   %V303.2
+(* Network 46 *)
+LD    %M5.0
+ST   %V303.3
+(* Network 47 *)
+LD    %V138.0
+ST   %V303.4
+(* Network 48 *)
+LD    %V138.5
+ST   %V303.5
+END
