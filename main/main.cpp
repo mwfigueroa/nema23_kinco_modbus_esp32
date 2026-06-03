@@ -5,7 +5,7 @@
  *   - WiFi AP+STA con servidor HTTP integrado
  *   - Puente Modbus TCP ↔ RS485
  *   - CAN bus (TWAI) opcional
- *   - Control de motor NEMA23 vía FastAccelStepper + RMT
+ *   - Control de PLC Kinco por Modbus RTU
  *   - Página web de control embebida
  *
  * Arquitectura:
@@ -21,14 +21,12 @@
  *   │                                              │
  *   │  CAN Bus (TWAI, GPIO 26/27) [opcional]       │
  *   │                                              │
- *   │  Stepper Control (RMT, GPIO 5/18/25)         │
  *   └─────────────────────────────────────────────┘
  */
 
 #include "wifi_manager.h"
 #include "bridge_rs485.h"
 #include "can_bus.h"
-#include "stepper_control.h"
 #include "status_led.h"
 #include "relay_control.h"
 #include "pin_config.h"
@@ -47,11 +45,11 @@ static const char *TAG = "main";
  * Prueba RS485 / Modbus RTU contra PLC Kinco MK043E-20DT
  * ================================================================ */
 
-#define PLC_RS485_TEST_ENABLE       1
+#define PLC_RS485_TEST_ENABLE       0
 #define PLC_RS485_TEST_BAUD         9600
 #define PLC_RS485_TEST_SLAVE_ID     1
-#define PLC_RS485_TEST_REGISTER     100     /* Ejemplo Kinco K5: VW0 = holding register 100 */
-#define PLC_RS485_TEST_VALUE        1234
+#define PLC_RS485_TEST_REGISTER     50      /* Kinco eje 0 control word: 40051 -> address base 0 = 50 */
+#define PLC_RS485_TEST_VALUE        0x0001
 #define PLC_RS485_TEST_TIMEOUT_MS   500
 
 static uint16_t modbus_crc16_local(const uint8_t *buf, size_t len)
@@ -91,7 +89,7 @@ static void log_frame_hex(const char *prefix, const uint8_t *data, size_t len)
     ESP_LOGI(TAG, "%s len=%u %s%s", prefix, (unsigned)len, hex, len > shown ? "..." : "");
 }
 
-static void plc_rs485_test_task(void *arg)
+static void __attribute__((unused)) plc_rs485_test_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(1500));
 
@@ -154,7 +152,9 @@ static void cmd_processor_task(void *arg)
         if (bridge_rx_queue && xQueueReceive(bridge_rx_queue, &msg, pdMS_TO_TICKS(50)) == pdTRUE) {
             if (msg) {
                 ESP_LOGI(TAG, "Comando Modbus local: func=%02X", msg[1]);
-                /* TODO: dispatch según function code */
+                /* El dispatch de comandos locales se maneja via HTTP API (wifi_manager).
+                   Este bloque recibe tramas Modbus TCP dirigidas al slave ID local;
+                   por ahora solo se loguean. */
                 free(msg);
             }
         }
@@ -164,7 +164,8 @@ static void cmd_processor_task(void *arg)
             twai_message_t can_msg;
             if (xQueueReceive(can_rx_queue, &can_msg, 0) == pdTRUE) {
                 ESP_LOGI(TAG, "CAN RX: ID=0x%lx DLC=%d", can_msg.identifier, can_msg.data_length_code);
-                /* TODO: dispatch CAN messages */
+                /* CAN bus disponible para integracion futura (ej. IPC-CFX, sensores externos).
+                   Por ahora solo se loguean los mensajes entrantes. */
             }
         }
     }
@@ -174,20 +175,6 @@ static void cmd_processor_task(void *arg)
  * Tarea de monitoreo de estado
  * ================================================================ */
 
-static void status_monitor_task(void *arg)
-{
-    while (1) {
-        stepper_state_t st = stepper_control_get_state();
-        int32_t pos = stepper_control_get_position();
-        int32_t spd = stepper_control_get_current_speed();
-
-        ESP_LOGI(TAG, "Stepper: state=%d pos=%ld speed=%ld steps/s",
-                 (int)st, (long)pos, (long)spd);
-
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-}
-
 /* ================================================================
  * Entry Point
  * ================================================================ */
@@ -196,7 +183,7 @@ extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "============================================");
     ESP_LOGI(TAG, " NEMA23 LILYGO Gateway v1.0");
-    ESP_LOGI(TAG, " ESP32 + T-CAN485 + FastAccelStepper");
+    ESP_LOGI(TAG, " ESP32 + T-CAN485 + Kinco Modbus");
     ESP_LOGI(TAG, " WiFi AP + Modbus TCP ↔ RS485 + CAN");
     ESP_LOGI(TAG, "============================================");
 
@@ -211,14 +198,14 @@ extern "C" void app_main(void)
     gpio_set_level((gpio_num_t)BOOST_EN_GPIO, 1);
     ESP_LOGI(TAG, "Boost converter habilitado (GPIO %d)", BOOST_EN_GPIO);
 
-    /* ——— 2. Inicializar WiFi (AP + STA al laboratorio) ——— */
+    /* ——— 2. Inicializar WiFi (solo STA, se conecta a la red del laboratorio) ——— */
     wifi_config_user_t wifi_cfg = {};
-    wifi_cfg.ap_ssid[0] = '\0';
+    wifi_cfg.ap_ssid[0] = '\0';          /* AP deshabilitado */
     wifi_cfg.ap_password[0] = '\0';
     strcpy(wifi_cfg.sta_ssid, "NS-LAB");
     strcpy(wifi_cfg.sta_password, "@L4b0r4t0r10@");
-    wifi_cfg.enable_ap = false;
-    wifi_cfg.enable_sta = true;
+    wifi_cfg.enable_ap = false;          /* sin Access Point */
+    wifi_cfg.enable_sta = true;          /* solo cliente (STA) */
 
     esp_err_t ret = wifi_manager_init(&wifi_cfg);
     if (ret != ESP_OK) {
@@ -226,7 +213,7 @@ extern "C" void app_main(void)
         return;
     }
 
-    /* Esperar a que el AP esté listo */
+    /* Esperar a que la conexión STA obtenga IP */
     EventGroupHandle_t wifi_evt = wifi_manager_get_event_group();
     EventBits_t wifi_bits = xEventGroupWaitBits(wifi_evt, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(15000));
     if (!(wifi_bits & WIFI_CONNECTED_BIT)) {
@@ -237,15 +224,6 @@ extern "C" void app_main(void)
     ret = http_server_start(80);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "HTTP server no pudo iniciar: %s", esp_err_to_name(ret));
-    }
-
-    /* ——— 4. Inicializar Stepper ——— */
-    stepper_config_t stepper_cfg = stepper_control_get_default_config();
-    ret = stepper_control_init(&stepper_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Error inicializando stepper: %s", esp_err_to_name(ret));
-    } else {
-        stepper_control_enable(true);
     }
 
     /* ——— 5. Inicializar salidas de relé ("topes") ——— */
@@ -291,7 +269,6 @@ extern "C" void app_main(void)
 
     /* ——— 9. Arrancar tareas ——— */
     xTaskCreate(cmd_processor_task, "cmd_proc", 6144, nullptr, 4, nullptr);
-    xTaskCreate(status_monitor_task, "status_mon", 4096, nullptr, 2, nullptr);
 
     ESP_LOGI(TAG, "============================================");
     ESP_LOGI(TAG, " Sistema listo.");

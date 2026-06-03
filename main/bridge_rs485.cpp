@@ -552,7 +552,7 @@ esp_err_t bridge_rs485_send(const uint8_t *data, size_t len)
     int written = uart_write_bytes((uart_port_t)s_bridge_config.rs485_uart_num,
                                    data, len);
     xSemaphoreGive(s_uart_mutex);
-    return (written == len) ? ESP_OK : ESP_FAIL;
+    return (written == (int)len) ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t bridge_rs485_transact(const uint8_t *request, size_t request_len,
