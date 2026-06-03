@@ -1,18 +1,17 @@
 /**
- * main.cpp — NEMA23 LILYGO T-CAN485 Gateway
+ * main.cpp — NEMA23 Kinco MODBUS ESP32 — Testing Tool
  *
  * Funcionalidades:
- *   - WiFi AP+STA con servidor HTTP integrado
- *   - Puente Modbus TCP ↔ RS485
- *   - CAN bus (TWAI) opcional
- *   - Control de PLC Kinco por Modbus RTU
- *   - Página web de control embebida
+ *   - WiFi STA (cliente de red NS-LAB) con servidor HTTP integrado
+ *   - Control de PLC Kinco MK043E-20DT por Modbus RTU (RS485)
+ *   - CAN bus (TWAI) opcional — monitoreo pasivo
+ *   - Página web de control y testing embebida
  *
  * Arquitectura:
  *   ┌─────────────────────────────────────────────┐
- *   │  WiFi AP (192.168.4.1) + STA (opcional)      │
+ *   │  WiFi STA → NS-LAB (IP por DHCP)             │
  *   │  └─ HTTP Server :80                          │
- *   │     ├─ GET  /          → panel de control    │
+ *   │     ├─ GET  /          → panel Kinco Motor 0 │
  *   │     ├─ GET  /api/status → JSON estado        │
  *   │     └─ POST /api/command → comandos JSON     │
  *   │                                              │
@@ -20,7 +19,6 @@
  *   │  └─ Puente ↔ RS485 (UART2, GPIO 21/22)      │
  *   │                                              │
  *   │  CAN Bus (TWAI, GPIO 26/27) [opcional]       │
- *   │                                              │
  *   └─────────────────────────────────────────────┘
  */
 
@@ -46,7 +44,7 @@ static const char *TAG = "main";
  * ================================================================ */
 
 #define PLC_RS485_TEST_ENABLE       0
-#define PLC_RS485_TEST_BAUD         9600
+#define PLC_RS485_TEST_BAUD         19200
 #define PLC_RS485_TEST_SLAVE_ID     1
 #define PLC_RS485_TEST_REGISTER     50      /* Kinco eje 0 control word: 40051 -> address base 0 = 50 */
 #define PLC_RS485_TEST_VALUE        0x0001
@@ -182,9 +180,9 @@ static void cmd_processor_task(void *arg)
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "============================================");
-    ESP_LOGI(TAG, " NEMA23 LILYGO Gateway v1.0");
-    ESP_LOGI(TAG, " ESP32 + T-CAN485 + Kinco Modbus");
-    ESP_LOGI(TAG, " WiFi AP + Modbus TCP ↔ RS485 + CAN");
+    ESP_LOGI(TAG, " NEMA23 Kinco MODBUS ESP32 — Testing Tool");
+    ESP_LOGI(TAG, " ESP32 + T-CAN485 + Kinco MK043E-20DT");
+    ESP_LOGI(TAG, " WiFi STA + HTTP + Modbus TCP <-> RS485");
     ESP_LOGI(TAG, "============================================");
 
     /* ——— 1. Habilitar boost converter (alimentación 5V para RS485/CAN) ——— */
@@ -198,7 +196,7 @@ extern "C" void app_main(void)
     gpio_set_level((gpio_num_t)BOOST_EN_GPIO, 1);
     ESP_LOGI(TAG, "Boost converter habilitado (GPIO %d)", BOOST_EN_GPIO);
 
-    /* ——— 2. Inicializar WiFi (solo STA, se conecta a la red del laboratorio) ——— */
+    /* ——— 2. Inicializar WiFi (STA — se conecta a la red del laboratorio) ——— */
     wifi_config_user_t wifi_cfg = {};
     wifi_cfg.ap_ssid[0] = '\0';          /* AP deshabilitado */
     wifi_cfg.ap_password[0] = '\0';
@@ -273,7 +271,8 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "============================================");
     ESP_LOGI(TAG, " Sistema listo.");
     ESP_LOGI(TAG, " STA      : SSID=%s (IP via DHCP; ver log 'WiFi STA IP')", wifi_cfg.sta_ssid);
-    ESP_LOGI(TAG, " Modbus TCP en puerto 502 -> RS485");
+    ESP_LOGI(TAG, " HTTP     : http://<IP_STA>/");
+    ESP_LOGI(TAG, " Modbus TCP en puerto 502 -> RS485 (Kinco PLC)");
     ESP_LOGI(TAG, "============================================");
 
     /* Loop principal — dormir */

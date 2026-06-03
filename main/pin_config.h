@@ -71,11 +71,6 @@ extern "C" {
 #define DEBUG_RX_GPIO           3
 #define DEBUG_BAUD              115200
 
-/* ================================================================
- * Indicador de estado (opcional)
- * ================================================================ */
-#define STATUS_LED_GPIO         2       // Compartido con SD_MISO si no usás SD
-
 #ifdef __cplusplus
 }
 #endif

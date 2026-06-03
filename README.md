@@ -13,7 +13,7 @@ configurable, y monitoreo en tiempo real de la posición.
 | **PLC** | Kinco MK043E-20DT (esclavo MODBUS RTU) |
 | **Motor** | NEMA23 con driver externo |
 | **RS485** | MAX13487EESA+ (half-duplex, UART2) |
-| **WiFi** | 802.11 b/g/n — modo AP (`NEMA23_Gateway`) |
+| **WiFi** | 802.11 b/g/n — modo STA (cliente de red `NS-LAB`) |
 | **LED** | WS2812B RGB (GPIO 4) — indicador de estado del sistema |
 
 ## Pinout relevante
@@ -44,22 +44,26 @@ El proyecto compila en `build_marti/`.
 
 ### 3. Conectarse a la interfaz web
 
-La ESP32 levanta un **Access Point WiFi**:
+La ESP32 se conecta como **cliente WiFi (STA)** a la red del laboratorio. La IP
+se asigna por DHCP y se muestra en el log serie:
+
+```
+wifi_mgr: WiFi STA IP: x.x.x.x
+```
 
 | Parámetro | Valor |
 |---|---|
-| **SSID** | `NEMA23_Gateway` |
-| **Password** | `12345678` |
-| **IP** | `192.168.4.1` |
+| **SSID** | `NS-LAB` |
+| **IP** | DHCP — ver log serie `WiFi STA IP: x.x.x.x` |
 | **Puerto HTTP** | `80` |
 
-Abrir `http://192.168.4.1/` en el navegador.
+Abrir `http://<IP_STA>/` en el navegador.
 
 ## Interfaz web
 
-La página principal (`/`) es el panel de control del motor Kinco:
+La página principal (`/`) es el panel de control del motor Kinco.
 
-![UI Preview](Info/preview_kinco_ui.html)
+> 💡 Para una preview offline de la interfaz, abrí `Info/preview_kinco_ui.html` en tu navegador.
 
 ### Secciones
 
@@ -119,7 +123,7 @@ Parámetros opcionales: `axis` (default 0), `speed`, `minf`, `time`, `dir`.
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "http://192.168.4.1/api/command" `
+  -Uri "http://<IP_STA>/api/command" `
   -Method POST `
   -ContentType "application/json" `
   -Body '{"cmd":"kinco_auto_cycle","arg":20000,"speed":6000,"minf":3000}'
@@ -184,7 +188,7 @@ El programa del PLC (`kinco_1motor_modbus_40070.ilp`) expone:
 | Parámetro | Valor |
 |---|---|
 | Slave ID PLC | `1` |
-| Baudrate | `9600` |
+| Baudrate | `19200` |
 | Formato | `8N1` |
 | Timeout | 700 ms |
 | Edge pulse | 100 ms |
