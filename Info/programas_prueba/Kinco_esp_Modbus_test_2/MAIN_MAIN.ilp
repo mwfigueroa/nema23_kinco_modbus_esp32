@@ -1,0 +1,162 @@
+(*2*)
+(* Network 0 *)
+LD    %SM0.0
+R    %SM201.7
+R    %SM201.3
+(* Network 1 *)
+LD    %SM0.1
+ST   %SM201.6
+(* Network 2 *)
+LD    %SM0.1
+MOVE    DI#0, Cmd_TargetSteps
+MOVE    DW#2000, PabsMaxF
+MOVE    W#300, PabsMinF
+MOVE    W#300, PabsTime
+MOVE    DI#0, MoveTarget
+MOVE    DI#0, ReturnTarget
+MOVE    DI#0, ActivePabsTarget
+(* Network 3 *)
+LD    %SM0.1
+MOVE    W#0, Status_Word
+MOVE    W#0, %VW304
+MOVE    W#0, %VW306
+(* Network 4 *)
+LD    %SM0.1
+R    %M0.4
+R    %M0.5
+R    %M0.6
+R    %M0.7
+R    %M1.0
+R    %M1.1
+R    %M1.2
+R    %M1.3
+R    %M1.4
+R    %M1.5
+R    %M2.0
+R    %M2.1
+R    %M2.2
+R    %M2.3
+R    %M3.1
+R    %M3.2
+(* Network 5 *)
+LD    %SM0.0
+ANDN    %M1.0
+NE    Cmd_TargetSteps, DI#0
+ST   %M0.4
+(* Network 6 *)
+LD    %M0.4
+MOVE    Cmd_TargetSteps, MoveTarget
+MOVE    Cmd_TargetSteps, ActivePabsTarget
+MOVE    DI#0, Cmd_TargetSteps
+MOVE    W#0, %VW304
+MOVE    W#0, %VW306
+(* Network 7 *)
+LD    %M0.4
+S    %M1.0
+S    %M1.1
+R    %M1.2
+R    %M1.3
+R    %M1.4
+R    %M1.5
+R    %M2.0
+R    %M2.1
+R    %M2.2
+R    %M2.3
+R    %M3.1
+R    %M3.2
+(* Network 8 *)
+LD    %M1.0
+ST   %Q0.3
+(* Network 9 *)
+LD    %M1.2
+TON   T0, 3000
+ST   %M0.6
+(* Network 10 *)
+LD    %M1.2
+AND    %M0.6
+ST   %M0.5
+(* Network 11 *)
+LD    %M0.5
+MOVE    %VD124, ActivePabsTarget
+R    %M1.2
+S    %M1.3
+R    %M2.0
+R    %M2.1
+R    %M3.1
+R    %M3.2
+(* Network 12 *)
+LD    %M0.4
+OR    %M0.5
+ST   %M0.7
+(* Network 13 *)
+LD    %SM0.0
+PABS    0, StartPabsPulse, PabsMinF, PabsMaxF, PabsTime, ActivePabsTarget, PabsRawDone, PabsRawErr, Err_Pabs
+(* Network 14 *)
+LD    %M1.1
+AND    %M2.0
+S    %M2.2
+S    %M1.2
+R    %M1.1
+(* Network 15 *)
+LD    %M1.1
+AND    %M2.1
+S    %M2.3
+S    %M1.5
+R    %M1.2
+R    %M1.3
+R    %M1.0
+R    %M1.1
+(* Network 16 *)
+LD    %M1.3
+AND    %M2.0
+S    %M3.1
+S    %M1.4
+R    %M1.0
+R    %M1.3
+(* Network 17 *)
+LD    %M1.3
+AND    %M2.1
+S    %M3.2
+S    %M1.5
+R    %M1.0
+R    %M1.3
+(* Network 18 *)
+LD    %SM0.0
+MOVE    %SMD212, Status_PosActual
+(* Network 19 *)
+LD    %M1.0
+ST   %V302.0
+(* Network 20 *)
+LD    %M1.1
+ST   %V302.1
+(* Network 21 *)
+LD    %M1.2
+ST   %V302.2
+(* Network 22 *)
+LD    %M1.3
+ST   %V302.3
+(* Network 23 *)
+LD    %M1.4
+ST   %V302.4
+(* Network 24 *)
+LD    %M1.5
+ST   %V302.5
+(* Network 25 *)
+LD    %M2.2
+ST   %V302.6
+(* Network 26 *)
+LD    %M2.3
+ST   %V302.7
+(* Network 27 *)
+LD    %M3.1
+ST   %V303.0
+(* Network 28 *)
+LD    %M3.2
+ST   %V303.1
+(* Network 29 *)
+LD    %Q0.3
+ST   %V303.2
+(* Network 30 *)
+LD    %M0.6
+ST   %V303.3
+END

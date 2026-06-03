@@ -1,0 +1,280 @@
+(*============================================================================*)
+(*  pabs_basico_5000.ilp — OPTIMIZADO                                        *)
+(*  Kinco MK043E-20DT | PABS basico por MODBUS con vuelta automatica a cero  *)
+(*  AXIS 0: STEP/PUL=%Q0.0  DIR=%Q0.2  ENABLE=%Q0.3                         *)
+(*                                                                            *)
+(*  Reducido de 88 redes a ~27 respetando la logica original.                *)
+(*  Basado en reglas oficiales de KincoBuilder IL (help extraido del CHM).   *)
+(*============================================================================*)
+
+(*----------------------------------------------------------------------------*)
+(*  REDES SIEMPRE ACTIVAS (%SM0.0)                                           *)
+(*----------------------------------------------------------------------------*)
+
+(* N0 — Liberar stop software PTO0 y habilitar control automatico de DIR *)
+
+LD    %SM0.0
+R     %SM201.7
+R     %SM201.3
+
+(*----------------------------------------------------------------------------*)
+(*  INICIALIZACION EN PRIMER SCAN (%SM0.1)                                   *)
+(*----------------------------------------------------------------------------*)
+
+(* N1 — Reset de posicion actual PTO0 *)
+
+LD    %SM0.1
+ST    %SM201.6
+
+(* N2 — Valores iniciales: destino, parametros PABS y target interno *)
+
+LD    %SM0.1
+MOVE  DI#0, %VD100
+MOVE  DW#2000, %VD104
+MOVE  W#300, %VW108
+MOVE  W#300, %VW110
+MOVE  DI#0, %VD120
+MOVE  DI#0, %VD124
+MOVE  DI#0, %VD128
+
+(* N3 — Valores iniciales: registros de estado y error MODBUS *)
+
+LD    %SM0.1
+MOVE  W#0, %VW302
+MOVE  W#0, %VW304
+MOVE  W#0, %VW306
+
+(* N4 — Limpiar todas las marcas internas *)
+
+LD    %SM0.1
+R     %M0.4
+R     %M0.5
+R     %M0.6
+R     %M0.7
+R     %M1.0
+R     %M1.1
+R     %M1.2
+R     %M1.3
+R     %M1.4
+R     %M1.5
+R     %M2.0
+R     %M2.1
+R     %M2.2
+R     %M2.3
+R     %M3.1
+R     %M3.2
+
+(*----------------------------------------------------------------------------*)
+(*  DETECCION DE COMANDO MODBUS                                              *)
+(*----------------------------------------------------------------------------*)
+
+(* N5 — Detectar nuevo destino: ciclo idle AND %VD100 distinto de 0 *)
+
+LD    %SM0.0
+ANDN  %M1.0
+NE    %VD100, DI#0
+ST    %M0.4
+
+(*----------------------------------------------------------------------------*)
+(*  PREPARACION DEL CICLO (un solo scan, activado por %M0.4)                 *)
+(*----------------------------------------------------------------------------*)
+
+(* N6 — Copiar destino, limpiar comando MODBUS y errores *)
+
+LD    %M0.4
+MOVE  %VD100, %VD120
+MOVE  %VD100, %VD128
+MOVE  DI#0, %VD100
+MOVE  W#0, %VW304
+MOVE  W#0, %VW306
+
+(* N7 — Activar ciclo + ida; limpiar todos los estados anteriores *)
+
+LD    %M0.4
+S     %M1.0
+S     %M1.1
+R     %M1.2
+R     %M1.3
+R     %M1.4
+R     %M1.5
+R     %M2.0
+R     %M2.1
+R     %M2.2
+R     %M2.3
+R     %M3.1
+R     %M3.2
+
+(*----------------------------------------------------------------------------*)
+(*  CONTROL DEL DRIVER                                                       *)
+(*----------------------------------------------------------------------------*)
+
+(* N8 — Habilitar driver solo mientras el ciclo esta activo *)
+
+LD    %M1.0
+ST    %Q0.3
+
+(*----------------------------------------------------------------------------*)
+(*  TEMPORIZADOR DE ESPERA (3 segundos antes de volver a cero)               *)
+(*----------------------------------------------------------------------------*)
+
+(* N9 — TON de 3s mientras WaitReturnActive *)
+
+LD    %M1.2
+TON   T0, 3000
+ST    %M0.6
+
+(*----------------------------------------------------------------------------*)
+(*  DISPARO DE VUELTA A CERO                                                 *)
+(*----------------------------------------------------------------------------*)
+
+(* N10 — Cuando termina la espera, disparar vuelta *)
+
+LD    %M1.2
+AND   %M0.6
+ST    %M0.5
+
+(* N11 — Cargar destino cero y conmutar a estado de vuelta *)
+
+LD    %M0.5
+MOVE  %VD124, %VD128
+R     %M1.2
+S     %M1.3
+R     %M2.0
+R     %M2.1
+R     %M3.1
+R     %M3.2
+
+(*----------------------------------------------------------------------------*)
+(*  PULSO COMUN PARA LA UNICA INSTRUCCION PABS                               *)
+(*----------------------------------------------------------------------------*)
+
+(* N12 — Combinar pulsos de ida y vuelta *)
+
+LD    %M0.4
+OR    %M0.5
+ST    %M0.7
+
+(*----------------------------------------------------------------------------*)
+(*  INSTRUCCION PABS UNICA (usada para ida y vuelta)                         *)
+(*----------------------------------------------------------------------------*)
+
+(* N13 — PABS con parametros variables desde MODBUS *)
+
+LD    %SM0.0
+PABS  0, %M0.7, %VW108, %VD104, %VW110, %VD128, %M2.0, %M2.1, %VB304
+
+(*----------------------------------------------------------------------------*)
+(*  MANEJO DE FINALIZACION Y ERRORES                                         *)
+(*----------------------------------------------------------------------------*)
+
+(* N14 — Ida completada: marcar done, entrar en espera, desactivar ida *)
+
+LD    %M1.1
+AND   %M2.0
+S     %M2.2
+S     %M1.2
+R     %M1.1
+
+(* N15 — Error en ida: marcar errores, abortar ciclo *)
+
+LD    %M1.1
+AND   %M2.1
+S     %M2.3
+S     %M1.5
+R     %M1.2
+R     %M1.3
+R     %M1.0
+R     %M1.1
+
+(* N16 — Vuelta completada: marcar done y ciclo terminado, cerrar *)
+
+LD    %M1.3
+AND   %M2.0
+S     %M3.1
+S     %M1.4
+R     %M1.0
+R     %M1.3
+
+(* N17 — Error en vuelta: marcar errores, cerrar ciclo *)
+
+LD    %M1.3
+AND   %M2.1
+S     %M3.2
+S     %M1.5
+R     %M1.0
+R     %M1.3
+
+(*----------------------------------------------------------------------------*)
+(*  ESPEJO DE POSICION ACTUAL A MODBUS                                       *)
+(*----------------------------------------------------------------------------*)
+
+(* N18 — Copiar %SMD212 (DINT) a %VD200 (40101-40102) *)
+
+LD    %SM0.0
+MOVE  %SMD212, %VD200
+
+(*----------------------------------------------------------------------------*)
+(*  BITS DE ESTADO HACIA %VW302 / MODBUS 40152                               *)
+(*----------------------------------------------------------------------------*)
+
+(* N19 — CycleActive → %V302.0 / 40152 bit 0 *)
+
+LD    %M1.0
+ST    %V302.0
+
+(* N20 — MoveOutActive → %V302.1 / 40152 bit 1 *)
+
+LD    %M1.1
+ST    %V302.1
+
+(* N21 — WaitReturnActive → %V302.2 / 40152 bit 2 *)
+
+LD    %M1.2
+ST    %V302.2
+
+(* N22 — ReturnActive → %V302.3 / 40152 bit 3 *)
+
+LD    %M1.3
+ST    %V302.3
+
+(* N23 — CycleDone → %V302.4 / 40152 bit 4 *)
+
+LD    %M1.4
+ST    %V302.4
+
+(* N24 — CycleErr → %V302.5 / 40152 bit 5 *)
+
+LD    %M1.5
+ST    %V302.5
+
+(* N25 — PabsOutDone → %V302.6 / 40152 bit 6 *)
+
+LD    %M2.2
+ST    %V302.6
+
+(* N26 — PabsOutErr → %V302.7 / 40152 bit 7 *)
+
+LD    %M2.3
+ST    %V302.7
+
+(* N27 — PabsReturnDone → %V303.0 / 40152 bit 8 *)
+
+LD    %M3.1
+ST    %V303.0
+
+(* N28 — PabsReturnErr → %V303.1 / 40152 bit 9 *)
+
+LD    %M3.2
+ST    %V303.1
+
+(* N29 — EnableOut → %V303.2 / 40152 bit 10 *)
+
+LD    %Q0.3
+ST    %V303.2
+
+(* N30 — WaitDone → %V303.3 / 40152 bit 11 *)
+
+LD    %M0.6
+ST    %V303.3
+
+END

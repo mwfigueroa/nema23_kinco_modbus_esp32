@@ -1,0 +1,50 @@
+VAR_GLOBAL
+    Cmd_TargetSteps AT %VD100 :DINT ; (* MODBUS 40051-40052: escribir pasos destino, distinto de 0 arranca ciclo *)
+    PabsMaxF AT %VD104 :DWORD ; (* MODBUS 40053-40054: frecuencia maxima PABS *)
+    PabsMinF AT %VW108 :WORD ; (* MODBUS 40055: frecuencia minima PABS *)
+    PabsTime AT %VW110 :WORD ; (* MODBUS 40056: aceleracion/desaceleracion *)
+
+    MoveTarget AT %VD120 :DINT ; (* Copia interna del destino recibido *)
+    ReturnTarget AT %VD124 :DINT ; (* Destino interno de vuelta a cero *)
+    ActivePabsTarget AT %VD128 :DINT ; (* Destino usado por la unica instruccion PABS *)
+    Status_PosActual AT %VD200 :DINT ; (* MODBUS 40101-40102: copia de %SMD212 *)
+    Status_Word AT %VW302 :WORD ; (* MODBUS 40152: estado del ciclo *)
+    Err_Pabs AT %VB304 :BYTE ; (* MODBUS 40153 low byte: error PABS actual *)
+    Err_ReturnReserved AT %VB306 :BYTE ; (* MODBUS 40154 low byte: reservado/limpiado *)
+
+    StartOutPulse AT %M0.4 :BOOL ;
+    StartReturnPulse AT %M0.5 :BOOL ;
+    WaitDone AT %M0.6 :BOOL ;
+    StartPabsPulse AT %M0.7 :BOOL ;
+
+    CycleActive AT %M1.0 :BOOL ;
+    MoveOutActive AT %M1.1 :BOOL ;
+    WaitReturnActive AT %M1.2 :BOOL ;
+    ReturnActive AT %M1.3 :BOOL ;
+    CycleDone AT %M1.4 :BOOL ;
+    CycleErr AT %M1.5 :BOOL ;
+
+    PabsRawDone AT %M2.0 :BOOL ;
+    PabsRawErr AT %M2.1 :BOOL ;
+    PabsOutDone AT %M2.2 :BOOL ;
+    PabsOutErr AT %M2.3 :BOOL ;
+    PabsReturnDone AT %M3.1 :BOOL ;
+    PabsReturnErr AT %M3.2 :BOOL ;
+
+    Status_CycleActive AT %V302.0 :BOOL ;
+    Status_MoveOutActive AT %V302.1 :BOOL ;
+    Status_WaitReturnActive AT %V302.2 :BOOL ;
+    Status_ReturnActive AT %V302.3 :BOOL ;
+    Status_CycleDone AT %V302.4 :BOOL ;
+    Status_CycleErr AT %V302.5 :BOOL ;
+    Status_PabsOutDone AT %V302.6 :BOOL ;
+    Status_PabsOutErr AT %V302.7 :BOOL ;
+    Status_PabsReturnDone AT %V303.0 :BOOL ;
+    Status_PabsReturnErr AT %V303.1 :BOOL ;
+    Status_EnableOut AT %V303.2 :BOOL ;
+    Status_WaitDone AT %V303.3 :BOOL ;
+
+    Hw_StepPul AT %Q0.0 :BOOL ; (* PTO0 STEP/PUL, manejado por PABS *)
+    Hw_Dir AT %Q0.2 :BOOL ; (* PTO0 DIR, manejado por PABS *)
+    Hw_DrvEnable AT %Q0.3 :BOOL ; (* Enable driver, activo solo durante el ciclo *)
+END_VAR

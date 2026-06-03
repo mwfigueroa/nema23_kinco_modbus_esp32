@@ -1,0 +1,43 @@
+Symbol,Address,Data Type,Comment
+Cmd_TargetSteps,%VD100,DINT,MODBUS 40051-40052 pasos destino distinto de 0 arranca ciclo
+PabsMaxF,%VD104,DWORD,MODBUS 40053-40054 frecuencia maxima PABS
+PabsMinF,%VW108,WORD,MODBUS 40055 frecuencia minima PABS
+PabsTime,%VW110,WORD,MODBUS 40056 aceleracion desaceleracion
+MoveTarget,%VD120,DINT,Copia interna del destino recibido
+ReturnTarget,%VD124,DINT,Destino interno de vuelta a cero
+ActivePabsTarget,%VD128,DINT,Destino usado por la unica instruccion PABS
+Status_PosActual,%VD200,DINT,MODBUS 40101-40102 copia de SMD212
+Status_Word,%VW302,WORD,MODBUS 40152 estado del ciclo
+Err_Pabs,%VB304,BYTE,MODBUS 40153 low byte error PABS actual
+Err_ReturnReserved,%VB306,BYTE,MODBUS 40154 low byte reservado limpiado
+StartOutPulse,%M0.4,BOOL,Pulso interno PABS ida
+StartReturnPulse,%M0.5,BOOL,Pulso interno PABS vuelta
+WaitDone,%M0.6,BOOL,Timer espera 3 segundos terminado
+StartPabsPulse,%M0.7,BOOL,Pulso comun de la unica instruccion PABS
+CycleActive,%M1.0,BOOL,Ciclo activo habilita driver
+MoveOutActive,%M1.1,BOOL,PABS ida activo
+WaitReturnActive,%M1.2,BOOL,Esperando antes de volver a cero
+ReturnActive,%M1.3,BOOL,PABS vuelta activo
+CycleDone,%M1.4,BOOL,Ciclo terminado correctamente
+CycleErr,%M1.5,BOOL,Ciclo con error
+PabsRawDone,%M2.0,BOOL,Done bruto de la instruccion PABS
+PabsRawErr,%M2.1,BOOL,Error bruto de la instruccion PABS
+PabsOutDone,%M2.2,BOOL,Done latcheado de ida
+PabsOutErr,%M2.3,BOOL,Error latcheado de ida
+PabsReturnDone,%M3.1,BOOL,Done latcheado de vuelta
+PabsReturnErr,%M3.2,BOOL,Error latcheado de vuelta
+Status_CycleActive,%V302.0,BOOL,Estado bit 0 CycleActive
+Status_MoveOutActive,%V302.1,BOOL,Estado bit 1 MoveOutActive
+Status_WaitReturnActive,%V302.2,BOOL,Estado bit 2 WaitReturnActive
+Status_ReturnActive,%V302.3,BOOL,Estado bit 3 ReturnActive
+Status_CycleDone,%V302.4,BOOL,Estado bit 4 CycleDone
+Status_CycleErr,%V302.5,BOOL,Estado bit 5 CycleErr
+Status_PabsOutDone,%V302.6,BOOL,Estado bit 6 PabsOutDone
+Status_PabsOutErr,%V302.7,BOOL,Estado bit 7 PabsOutErr
+Status_PabsReturnDone,%V303.0,BOOL,Estado bit 8 PabsReturnDone
+Status_PabsReturnErr,%V303.1,BOOL,Estado bit 9 PabsReturnErr
+Status_EnableOut,%V303.2,BOOL,Estado bit 10 EnableOut
+Status_WaitDone,%V303.3,BOOL,Estado bit 11 WaitDone
+Hw_StepPul,%Q0.0,BOOL,PTO0 STEP PUL manejado por PABS
+Hw_Dir,%Q0.2,BOOL,PTO0 DIR manejado por PABS
+Hw_DrvEnable,%Q0.3,BOOL,Enable driver activo solo durante el ciclo
