@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kinco Motor 0 — Preview</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{font-family:Arial,sans-serif;margin:0;background:#0f172a;color:#e5e7eb}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:0 0 6px;color:#f8fafc}
+.sub{color:#94a3b8;font-size:13px;margin:0 0 14px}
+section{border:1px solid #334155;border-radius:8px;padding:12px;margin:10px 0;background:#1e293b}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{background:#2563eb;color:#fff;border:0;border-radius:6px;padding:11px 14px;cursor:pointer;min-height:40px;font-weight:600}
+button:hover{background:#1d4ed8}.danger{background:#dc2626}.danger:hover{background:#b91c1c}
+.toggle{background:#475569}.toggle.on{background:#16a34a}.toggle.off{background:#64748b}
+.move{font-size:17px;min-width:160px}.ok{color:#34d399}.bad{color:#f87171}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:13px}
+.kv span:nth-child(odd){color:#94a3b8}.mono{font-family:Consolas,monospace}
+.status{font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto;max-height:190px;background:#0f172a;border-radius:6px;padding:8px}
+.muted{color:#94a3b8;font-size:12px}.card{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px}
+.counter-box{background:linear-gradient(135deg,#1e293b,#0f172a);border:2px solid #334155;border-radius:12px;padding:16px 20px;text-align:center;margin:8px 0}
+.counter-box .big{font-size:52px;font-weight:700;font-family:Consolas,monospace;color:#34d399;letter-spacing:2px;line-height:1.1}
+.counter-box .label{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px}
+.counter-box .target-line{font-size:13px;color:#94a3b8;margin-top:4px}
+.counter-box .progress-bar{height:6px;background:#1e293b;border-radius:3px;margin-top:8px;overflow:hidden}
+.counter-box .progress-fill{height:100%;background:linear-gradient(90deg,#16a34a,#34d399);border-radius:3px;width:0%;transition:width .3s}
+.counter-box.pulse{animation:ctr-pulse .6s ease-in-out}
+@keyframes ctr-pulse{0%,100%{border-color:#334155}50%{border-color:#34d399}}
+@media(max-width:640px){main{padding:10px}.row button{flex:1 1 140px}.move{min-width:0}}
+.sim-badge{display:inline-block;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:2px 8px;font-size:11px;margin-left:6px;color:#fbbf24}
+</style>
+</head>
+<body>
+<main>
+  <h1>Kinco Motor 0</h1>
+  <p class="sub">Prueba MODBUS directa a PLC: control 40070, estado 40152, posicion 40101.</p>
+  <p class="sub">LED ESP32: violeta=lectura MODBUS, ámbar=escritura MODBUS, rojo=error MODBUS.</p>
+
+  <!-- Contador global de pasos -->
+  <div id="counterBox" class="counter-box">
+    <div class="label">Contador de pasos — Posición actual</div>
+    <div class="big" id="counterValue">0</div>
+    <div id="counterTarget" class="target-line" style="display:none">Objetivo: <strong id="counterTargetVal">0</strong></div>
+    <div class="progress-bar"><div id="counterProgress" class="progress-fill" style="width:0%"></div></div>
+  </div>
+
+  <section>
+    <div class="row">
+      <button id="enableBtn" class="toggle on" onclick="toggleEnable()">Enable: ON</button>
+      <button id="dirBtn" class="toggle off" onclick="toggleDir()">Dirección HOME: Forward</button>
+      <button onclick="home()">HOME</button>
+      <button class="danger" onclick="cmd('kinco_stop',0)">STOP</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="row">
+      <button class="move" onclick="move(5000)">Adelantar 5000</button>
+      <button class="move" onclick="move(-5000)">Retroceder 5000</button>
+    </div>
+    <p class="muted">Cada movimiento lee la posición actual de la PLC y ordena un PABS relativo de 5000 pasos.</p>
+  </section>
+
+  <section>
+    <div class="row" style="align-items:center">
+      <button id="autoCycleBtn" class="move" onclick="autoCycle()" style="background:#16a34a;font-size:18px">
+        🔄 Auto Cycle 0→N→0
+      </button>
+      <label style="color:#94a3b8;font-size:13px;display:flex;align-items:center;gap:4px">
+        Steps<input id="cycleSteps" type="number" value="15000" min="1" max="999999" step="1000"
+        style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:8px 10px;width:90px;font-size:14px;text-align:center"></label>
+      <label style="color:#94a3b8;font-size:13px;display:flex;align-items:center;gap:4px">
+        CW Hz<input id="cycleFwdHz" type="number" value="5000" min="125" max="200000" step="500"
+        style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:8px 10px;width:82px;font-size:14px;text-align:center"></label>
+      <label style="color:#94a3b8;font-size:13px;display:flex;align-items:center;gap:4px">
+        CCW Hz<input id="cycleCcwHz" type="number" value="2500" min="125" max="200000" step="500"
+        style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:8px 10px;width:82px;font-size:14px;text-align:center"></label>
+    </div>
+    <p class="muted">Ciclo automático: N steps CW, regresa a 0 CCW. El contador se actualiza cada 500ms durante la ejecución.</p>
+  </section>
+
+  <section>
+    <div class="row">
+      <button onclick="cmd('kinco_reset_pos',0)">Reset Pos</button>
+      <button onclick="cmd('kinco_reset_status',0)">Reset Estados</button>
+      <button onclick="readStates()">Leer estados PLC</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="grid">
+      <div class="card">
+        <strong>Motor</strong>
+        <div class="kv" id="motor">
+          <span>Link</span><span class="ok">OK</span>
+          <span>Posición</span><span class="mono">7500</span>
+          <span>Control 40070</span><span class="mono">0x0001</span>
+          <span>Estado 40152</span><span class="mono">0x0208</span>
+          <span>Estado2 40153</span><span class="mono">0x0000</span>
+          <span>Estado3 40154</span><span class="mono">0x0000</span>
+        </div>
+      </div>
+      <div class="card">
+        <strong>Bits de estado %VW302</strong>
+        <div class="kv" id="bits">
+          <span>HomeOK b0</span><span class="ok">1</span>
+          <span>HomeDone b1</span><span>1</span>
+          <span>HomeErr b2</span><span class="ok">0</span>
+          <span>PabsDone b3</span><span>1</span>
+          <span>PabsErr b4</span><span class="ok">0</span>
+          <span>PTO0 b5</span><span>1</span>
+          <span>HomingAct b6</span><span>0</span>
+          <span>PabsAct b7</span><span>0</span>
+          <span>HomeSensor b8</span><span>1</span>
+          <span>SystemReady b9</span><span class="ok">1</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <strong>Respuesta</strong>
+    <pre class="status" id="log">Listo — preview offline</pre>
+    <div class="muted">UI prueba un motor 1.1 <span class="sim-badge">PREVIEW</span></div>
+  </section>
+</main>
+
+<script>
+let enable=true,dir=0,cycleTarget=0,cycleRunning=false,fastPollId=null;
+let counterEl=document.getElementById('counterValue');
+let counterBox=document.getElementById('counterBox');
+let counterTargetEl=document.getElementById('counterTarget');
+let counterTargetVal=document.getElementById('counterTargetVal');
+let counterProgress=document.getElementById('counterProgress');
+
+function updateCounter(pos,target){
+  if(!counterEl)return;
+  let prev=counterEl.textContent;
+  counterEl.textContent=pos.toLocaleString();
+  if(prev!==counterEl.textContent){
+    counterBox.classList.remove('pulse');
+    void counterBox.offsetWidth;
+    counterBox.classList.add('pulse');
+  }
+  if(target>0){
+    counterTargetEl.style.display='block';
+    counterTargetVal.textContent=target.toLocaleString();
+    let pct=target?Math.min(100,Math.round(Math.abs(pos)/target*100)):0;
+    counterProgress.style.width=pct+'%';
+  }else{
+    counterTargetEl.style.display='none';
+    counterProgress.style.width='0%';
+  }
+}
+
+function hx(v){return '0x'+(v||0).toString(16).padStart(4,'0')}
+function cls(v){return v?'ok':'bad'}
+
+async function api(b){
+  let log=document.getElementById('log');
+  log.textContent='🔌 SIM: POST /api/command\n'+JSON.stringify(b,null,2);
+  return {
+    result:'ok',
+    motor:{
+      ok:true,err:'ESP_OK',exception:0,
+      enable:1,home_dir:0,pos:7500,
+      control:0x0001,status:0x0208,status2:0,status3:0,
+      home_ok:1,home_done:1,home_err:0,
+      pabs_done:1,pabs_err:0,pto0:1,
+      homing_active:0,pabs_active:0,
+      home_sensor:1,system_ready:1
+    }
+  };
+}
+
+async function cmd(c,a){
+  let b={cmd:c,axis:0,speed:2000,minf:300,time:300,dir:dir};
+  if(a!==undefined)b.arg=a;
+  let j=await api(b);
+  readStates(false);
+  return j;
+}
+
+async function toggleEnable(){
+  enable=!enable;
+  let eb=document.getElementById('enableBtn');
+  eb.textContent='Enable: '+(enable?'ON':'OFF');
+  eb.className='toggle '+(enable?'on':'off');
+  await cmd('kinco_enable',enable?1:0);
+}
+
+async function toggleDir(){
+  dir=dir?0:1;updateDir();
+  await cmd('kinco_set_dir',dir);
+}
+
+function updateDir(){
+  let b=document.getElementById('dirBtn');
+  b.textContent='Dirección HOME: '+(dir?'Backward':'Forward');
+  b.className='toggle '+(dir?'on':'off');
+}
+
+function home(){cmd('kinco_home',0)}
+function move(delta){cmd('kinco_move_delta',delta)}
+
+async function autoCycle(){
+  let btn=document.getElementById('autoCycleBtn');
+  let log=document.getElementById('log');
+  let steps=parseInt(document.getElementById('cycleSteps').value)||15000;
+  let fwdHz=parseInt(document.getElementById('cycleFwdHz').value)||5000;
+  let ccwHz=parseInt(document.getElementById('cycleCcwHz').value)||2500;
+  cycleTarget=steps;cycleRunning=true;updateCounter(0,steps);
+  btn.disabled=true;btn.textContent='⏳ Ciclo en curso...';
+  log.textContent='🚀 Iniciando: 0 → '+steps+' CW @'+fwdHz+'Hz ...';
+
+  let simPos=0;
+  fastPollId=setInterval(()=>{
+    if(simPos<steps){simPos+=Math.floor(steps/8);if(simPos>steps)simPos=steps}
+    else{simPos-=Math.floor(steps/10);if(simPos<0)simPos=0}
+    updateCounter(simPos,cycleTarget);
+  },800);
+
+  try{
+    await new Promise(r=>setTimeout(r,4000));
+    let b={cmd:'kinco_auto_cycle',axis:0,arg:steps,speed:fwdHz,minf:ccwHz,time:300,dir:dir};
+    log.textContent='✅ SIMULACIÓN\n'+JSON.stringify({
+      result:'ok',cmd:'kinco_auto_cycle',phase:'ccw',
+      cw_ok:true,ccw_ok:true,
+      cw_target:steps,fwd_speed:fwdHz,ret_speed:ccwHz,
+      pos_after_cw:steps,pos_final:0,
+      status:0x0208,home_ok:1,pabs_done:1,pabs_err:0,system_ready:1
+    },null,2);
+    btn.style.background='#16a34a';
+  }catch(e){
+    btn.style.background='#dc2626';log.textContent='❌ '+e.message;
+  }finally{
+    clearInterval(fastPollId);fastPollId=null;cycleRunning=false;cycleTarget=0;
+    btn.disabled=false;btn.textContent='🔄 Auto Cycle 0→N→0';
+    updateCounter(0,0);
+  }
+}
+
+async function readStates(show=true){
+  let j=await api({cmd:'kinco_status'});
+  if(show&&j.motor)paint(j.motor);
+  return j;
+}
+
+function paint(m){
+  if(!m)return;
+  enable=!!m.enable;dir=m.home_dir?1:0;
+  let eb=document.getElementById('enableBtn');
+  eb.textContent='Enable: '+(enable?'ON':'OFF');
+  eb.className='toggle '+(enable?'on':'off');
+  updateDir();
+  updateCounter(m.pos,cycleTarget||0);
+  document.getElementById('motor').innerHTML=
+    '<span>Link</span><span class='+cls(m.ok)+'>'+(m.ok?'OK':'ERR '+m.err)+'</span>'+
+    '<span>Posición</span><span class=mono>'+m.pos+'</span>'+
+    '<span>Control 40070</span><span class=mono>'+hx(m.control)+'</span>'+
+    '<span>Estado 40152</span><span class=mono>'+hx(m.status)+'</span>'+
+    '<span>Estado2 40153</span><span class=mono>'+hx(m.status2)+'</span>'+
+    '<span>Estado3 40154</span><span class=mono>'+hx(m.status3)+'</span>';
+  document.getElementById('bits').innerHTML=
+    '<span>HomeOK b0</span><span class='+cls(m.home_ok)+'>'+m.home_ok+'</span>'+
+    '<span>HomeDone b1</span><span>'+m.home_done+'</span>'+
+    '<span>HomeErr b2</span><span class='+cls(!m.home_err)+'>'+m.home_err+'</span>'+
+    '<span>PabsDone b3</span><span>'+m.pabs_done+'</span>'+
+    '<span>PabsErr b4</span><span class='+cls(!m.pabs_err)+'>'+m.pabs_err+'</span>'+
+    '<span>PTO0 b5</span><span>'+m.pto0+'</span>'+
+    '<span>HomingAct b6</span><span>'+m.homing_active+'</span>'+
+    '<span>PabsAct b7</span><span>'+m.pabs_active+'</span>'+
+    '<span>HomeSensor b8</span><span>'+m.home_sensor+'</span>'+
+    '<span>SystemReady b9</span><span class='+cls(m.system_ready)+'>'+m.system_ready+'</span>';
+}
+
+updateDir();
+setInterval(()=>{if(!cycleRunning)readStates(false)},3000);
+readStates(false);
+</script>
+</body>
+</html>

@@ -1,55 +1,32 @@
-# NEMA23 LILYGO T-CAN485 Gateway
+# NEMA23 Kinco MODBUS ESP32 — Testing Tool
 
-Controlador de motor paso a paso **NEMA23** + **gateway industrial** basado en
-**ESP32 LILYGO T-CAN485**, con puente **Modbus TCP <-> RS485**, **CAN bus** y
-**WiFi**.
+Herramienta de prueba y control para motor **NEMA23** con driver **Kinco
+MK043E-20DT** vía **MODBUS RTU (RS485)** desde un **ESP32 LILYGO T-CAN485**.
+Interfaz web embebida para ejecutar movimientos PABS/HOME, ciclo automático
+configurable, y monitoreo en tiempo real de la posición.
 
 ## Hardware
 
 | Componente | Especificación |
-|-----------|---------------|
-| **MCU** | ESP32 (LILYGO T-CAN485) |
-| **Motor** | NEMA23 con driver externo (DM542/TB6600) |
-| **RS485** | MAX13487EESA+ (half-duplex) |
-| **CAN** | SN65HVD231 (TWAI) |
-| **WiFi** | 802.11 b/g/n (AP + STA) |
-| **LED** | WS2812B RGB (GPIO 4) |
+|---|---|
+| **MCU** | ESP32 — LILYGO T-CAN485 |
+| **PLC** | Kinco MK043E-20DT (esclavo MODBUS RTU) |
+| **Motor** | NEMA23 con driver externo |
+| **RS485** | MAX13487EESA+ (half-duplex, UART2) |
+| **WiFi** | 802.11 b/g/n — modo AP (`NEMA23_Gateway`) |
+| **LED** | WS2812B RGB (GPIO 4) — indicador de estado del sistema |
 
-## Pinout
+## Pinout relevante
 
-| Función | GPIO | Notas |
-|---------|------|-------|
-| **STEP** | 5 | RMT channel |
-| **DIR** | 18 | Dirección motor |
-| **EN** | 25 | Enable driver |
-| **RS485 TX** | 22 | UART2 |
-| **RS485 RX** | 21 | UART2 |
-| **RS485 EN** | 17 | MAX13487 /RE — debe ir HIGH para activar el transceiver |
-| **RS485 SE** | 19 | MAX13487 SHDN — debe ir HIGH para activar el transceiver |
-| **CAN TX** | 27 | TWAI |
-| **CAN RX** | 26 | TWAI |
-| **CAN SE** | 23 | SN65HVD231 Rs — **LOW = high-speed**, HIGH = standby |
-| **BOOST EN** | 16 | ME2107 / PIN_5V_EN — HIGH para habilitar 5V |
-| **WS2812B** | 4 | LED RGB de estado (ver "Indicador de estado") |
-| **LIMIT MIN** | 32 | Final de carrera |
-| **LIMIT MAX** | 33 | Final de carrera |
-| **RELÉ 1** | 13 | Salida activo-alto — coil Modbus 0 ⚠️ compartido con microSD |
-| **RELÉ 2** | 14 | Salida activo-alto — coil Modbus 1 ⚠️ compartido con microSD |
-
-> ⚠️ **GPIO 13 y 14 están compartidos con el zócalo microSD** de la T-CAN485.
-> Están ruteados y disponibles **solo si NO vas a usar la SD**. Tené cuidado con
-> el zócalo SD, sus resistencias/pull-ups y cualquier tarjeta insertada (pueden
-> cargar la línea o entrar en conflicto con la salida). Para tomar la señal
-> físicamente, lo más seguro es soldar desde los **pads del propio zócalo
-> microSD**, o confirmar continuidad con multímetro antes de cablear el relé.
+| Función | GPIO |
+|---|---|
+| RS485 TX | 22 |
+| RS485 RX | 21 |
+| RS485 EN (/RE) | 17 |
+| RS485 SE (SHDN) | 19 |
+| WS2812B DATA | 4 |
 
 ## Quick Start
-
-### 0. Verificar entorno ESP-IDF (opcional pero recomendado)
-
-```powershell
-.\scripts\doctor.ps1
-```
 
 ### 1. Compilar
 
@@ -57,325 +34,221 @@ Controlador de motor paso a paso **NEMA23** + **gateway industrial** basado en
 .\scripts\build.ps1
 ```
 
-Por defecto el proyecto compila en `build_marti/`. Si querés usar otro
-directorio:
+El proyecto compila en `build_marti/`.
+
+### 2. Flashear
 
 ```powershell
-.\scripts\build.ps1 -BuildDir build
+.\scripts\flash_monitor.ps1 -Port COM4
 ```
 
-Para evitar flashear un firmware viejo, tambien se puede compilar en una carpeta
-explicita y usar esa misma carpeta al flashear:
+### 3. Conectarse a la interfaz web
 
-```powershell
-. .\scripts\ensure_idf.ps1
-Import-EspIdfEnvironment
-idf.py -B build_marti build
-idf.py -B build_marti -p COM4 flash
-```
+La ESP32 levanta un **Access Point WiFi**:
 
-El ultimo flash validado se hizo en `COM4`. Lo importante es compilar y flashear
-siempre desde el mismo `BuildDir`; por defecto los scripts usan `build_marti/`.
-En el panel web, la UI nueva se identifica como `UI: 1.1`.
+| Parámetro | Valor |
+|---|---|
+| **SSID** | `NEMA23_Gateway` |
+| **Password** | `12345678` |
+| **IP** | `192.168.4.1` |
+| **Puerto HTTP** | `80` |
 
-### 2. Flashear y monitorear
+Abrir `http://192.168.4.1/` en el navegador.
 
-```powershell
-.\scripts\flash_monitor.ps1 -Port COM3
-```
+## Interfaz web
 
-### 3. Conectarse
+La página principal (`/`) es el panel de control del motor Kinco:
 
-El firmware arranca en modo **STA / cliente WiFi**:
+![UI Preview](Info/preview_kinco_ui.html)
 
-| Vía | SSID / Red | IP de la placa | Notas |
-|-----|-----------|----------------|-------|
-| **STA (cliente de red existente)** | configurado en `main/main.cpp` | DHCP del router | Para acceso desde la red de oficina/laboratorio |
+### Secciones
 
-- **Panel web**: `http://<IP>/`
-- **Modbus TCP**: `<IP>:502` -> puente a RS485
-- **API REST**: ver sección "API HTTP" abajo
+| Sección | Función |
+|---|---|
+| **Contador de pasos** | Posición actual en tiempo real con barra de progreso |
+| **Enable / HOME / STOP** | Control básico del driver y HOME |
+| **Movimientos** | PABS relativos de ±5000 pasos |
+| **🔄 Auto Cycle** | Ciclo automático configurable: N pasos CW → regreso a 0 CCW |
+| **Reset / Lectura** | Reset de posición, reset de estados, lectura del PLC |
+| **Tarjetas de estado** | Datos del motor + bits de `%VW302` en tiempo real |
+| **Log JSON** | Respuesta completa del último comando |
 
-> **Cambiar SSID/password de STA**: editar las líneas con
-> `strcpy(wifi_cfg.sta_*)` en [main/main.cpp](main/main.cpp) y recompilar. La
-> IP asignada por DHCP se loguea en el monitor serie como
-> `wifi_mgr: WiFi STA IP: x.x.x.x`.
+### Auto Cycle
 
-### Alimentación
+El botón verde ejecuta una secuencia automática:
 
-La placa **no arranca correctamente alimentada solo por USB de PC**: el inrush
-del boost converter ME2107 (GPIO 16) hace caer la tensión y dispara el brownout
-detector. Solución: alimentar por el **terminal de tornillo de 2 pines (5-12V)**
-que la placa trae cerca del USB-C, y dejar el USB para datos/monitor.
+1. **Fase CW**: PABS a N pasos con velocidad configurable
+2. **Fase CCW**: regreso a 0 con velocidad de retorno
+
+Campos configurables en la UI:
+
+| Campo | Default | Rango |
+|---|---|---|
+| **Steps** | 15000 | 1 – 999999 |
+| **CW Hz** | 5000 | 125 – 200000 |
+| **CCW Hz** | 2500 | 125 – 200000 |
+
+El contador se actualiza cada **500 ms** durante la ejecución. El botón se
+deshabilita mientras corre (~10-30 s).
 
 ## API HTTP
 
 | Método | Endpoint | Descripción |
-|--------|----------|-------------|
+|---|---|---|
 | `GET` | `/` | Panel de control HTML |
 | `GET` | `/api/status` | Estado del sistema (JSON) |
 | `POST` | `/api/command` | Enviar comando (JSON) |
 
-### Comandos JSON
+### Comandos disponibles
 
 ```json
-{"cmd": "move_to",     "arg": 10000}
-{"cmd": "move_rel",    "arg": -500}
-{"cmd": "move_rel",    "arg": 1000, "speed": 5000}
-{"cmd": "set_speed",   "arg": 5000}
-{"cmd": "run_speed",   "arg": 5000}
-{"cmd": "stop"}
-{"cmd": "estop"}
-{"cmd": "home"}
-{"cmd": "enable",      "arg": 1}
-{"cmd": "rs485_mode"}
-{"cmd": "can_mode"}
-{"cmd": "plc_send_step"}
-{"cmd": "plc_read_vw"}
+{"cmd": "kinco_status"}           // Leer estado completo del motor
+{"cmd": "kinco_enable", "arg": 1}  // Enable driver (1=ON, 0=OFF)
+{"cmd": "kinco_home", "arg": 0}    // Ejecutar HOME
+{"cmd": "kinco_pabs", "arg": 10000, "speed": 5000}  // PABS a posición
+{"cmd": "kinco_move_delta", "arg": 5000}  // PABS relativo ±N pasos
+{"cmd": "kinco_stop"}             // PSTOP
+{"cmd": "kinco_reset_pos"}        // Reset posición PTO0
+{"cmd": "kinco_reset_status"}     // Reset estados internos
+{"cmd": "kinco_auto_cycle", "arg": 15000, "speed": 5000, "minf": 2500}
 ```
 
-### Comandos PLC Kinco desde HTTP
+Parámetros opcionales: `axis` (default 0), `speed`, `minf`, `time`, `dir`.
 
-El panel web incluye dos botones para probar la comunicacion con el PLC Kinco
-`MK043E-20DT` por RS485/Modbus RTU:
-
-| Boton / comando | Accion |
-|-----------------|--------|
-| `PLC Steps -> VW0/VW2` / `{"cmd":"plc_send_step"}` | Escribe la posicion actual del NEMA23 como entero de 32 bits en `%VD0` |
-| `Leer VW0 / VW2` / `{"cmd":"plc_read_vw"}` | Lee `%VW0` y `%VW2`, y reconstruye el valor DINT |
-
-Respuesta de lectura esperada:
-
-```json
-{
-  "result": "ok",
-  "cmd": "plc_read_vw",
-  "plc_slave": 1,
-  "vw0_register": 100,
-  "vw0": 0,
-  "vw2_register": 101,
-  "vw2": 1234,
-  "plc_value_32": 1234,
-  "read_status": "lectura_ok"
-}
-```
-
-### Ejemplo TCP/IP: avanzar 1000 pasos con velocidad
-
-Conectarse a la misma red WiFi donde se conecta la placa (`NS-LAB`) y usar la IP DHCP informada por el monitor serie:
-
-| Dato | Valor |
-|------|-------|
-| **SSID STA** | `NS-LAB` |
-| **IP placa** | DHCP, ver log `WiFi STA IP: x.x.x.x` |
-| **Endpoint** | `POST http://<IP_STA>/api/command` |
-
-Enviar comando desde PowerShell:
+### Ejemplo con PowerShell
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "http://<IP_STA>/api/command" `
+  -Uri "http://192.168.4.1/api/command" `
   -Method POST `
   -ContentType "application/json" `
-  -Body '{"cmd":"move_rel","arg":1000,"speed":5000}'
+  -Body '{"cmd":"kinco_auto_cycle","arg":20000,"speed":6000,"minf":3000}'
 ```
 
-El cuerpo JSON enviado es:
+## Mapa MODBUS Kinco ↔ ESP32
 
-```json
-{"cmd":"move_rel","arg":1000,"speed":5000}
-```
+El programa del PLC (`kinco_1motor_modbus_40070.ilp`) expone:
 
-Tambien se puede configurar la velocidad una vez y luego enviar movimientos:
+### Escritura (ESP32 → PLC)
 
-```powershell
-Invoke-RestMethod `
-  -Uri "http://<IP_STA>/api/command" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"cmd":"set_speed","arg":5000}'
+| MODBUS | Variable Kinco | Tipo | Función |
+|---|---:|---|---|
+| **40070** | `%VW138` | WORD | Palabra de control (enable, start, stop, reset) |
+| 40051-40052 | `%VD100` | DINT | Destino PABS |
+| 40053-40054 | `%VD104` | DWORD | Frecuencia máxima PABS |
+| 40055 | `%VW108` | WORD | Frecuencia mínima PABS |
+| 40056 | `%VW110` | WORD | Tiempo aceleración PABS |
+| 40057 | `%VW112` | INT | Modo HOME |
+| 40058 | `%VW114` | INT | Dirección HOME |
+| 40059 | `%VW116` | WORD | Frecuencia mínima HOME |
+| 40060-40061 | `%VD118` | DWORD | Frecuencia máxima HOME |
+| 40062 | `%VW122` | WORD | Tiempo aceleración HOME |
 
-Invoke-RestMethod `
-  -Uri "http://<IP_STA>/api/command" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"cmd":"move_rel","arg":1000}'
-```
+### Lectura (PLC → ESP32)
 
-Reemplazar `<IP_STA>` por la IP DHCP que aparece en el monitor serie como
-`WiFi STA IP: x.x.x.x`.
+| MODBUS | Variable Kinco | Tipo | Función |
+|---|---:|---|---|
+| 40101-40102 | `%VD200` | DINT | Posición actual PTO0 |
+| 40152 | `%VW302` | WORD | Bits de estado |
+| 40153 | `%VW304` | WORD | ErrID PABS / STOP |
+| 40154 | `%VW306` | WORD | ErrID HOME |
 
-## PLC Kinco MK043E-20DT por RS485
+### Bits de control (`%VW138` / 40070)
 
-El gateway puede hablar directamente con el PLC Kinco por Modbus RTU usando el
-bus RS485. La comunicacion directa usa `bridge_rs485_transact()`, protegida con
-mutex para no pisarse con el puente Modbus TCP -> RS485.
+| Bit | Valor | Función |
+|---|---:|---|
+| 0 | `0x0001` | Enable driver |
+| 1 | `0x0003` | Reset posición PTO0 |
+| 2 | `0x0005` | Start PABS |
+| 3 | `0x0009` | Start HOME |
+| 4 | `0x0011` | Reset estados |
+| 5 | `0x0021` | PSTOP |
 
-Configuracion usada actualmente:
+### Bits de estado (`%VW302` / 40152)
 
-| Parametro | Valor |
-|-----------|-------|
+| Bit | Nombre | Significado |
+|---|---:|---|
+| 0 | HomeOK | HOME válido |
+| 1 | HomeDone | PHOME completado |
+| 2 | HomeErr | Error HOME |
+| 3 | PabsDone | PABS completado |
+| 4 | PabsErr | Error PABS |
+| 5 | PTO0 | Estado PTO0 |
+| 6 | HomingActive | HOME en curso |
+| 7 | PabsActive | PABS en curso |
+| 8 | HomeSensor | Sensor de HOME (I0.0) |
+| 9 | SystemReady | Sistema listo para PABS |
+
+## Configuración MODBUS RTU
+
+| Parámetro | Valor |
+|---|---|
 | Slave ID PLC | `1` |
 | Baudrate | `9600` |
-| Formato serie | `8N1` |
-| Lectura | FC03 Read Holding Registers |
-| Escritura 32 bits | FC16 Write Multiple Registers |
+| Formato | `8N1` |
+| Timeout | 700 ms |
+| Edge pulse | 100 ms |
 
-Mapa Kinco probado:
+## Indicador LED (WS2812B)
 
-| Variable Kinco | Registro Modbus | Uso |
-|----------------|-----------------|-----|
-| `%VW0` | `100` | Word bajo de `%VD0` |
-| `%VW2` | `101` | Word alto de `%VD0` |
-| `%VD0` | `100` + `101` | DINT de 32 bits |
+El LED RGB refleja el estado del sistema por prioridad:
 
-La ESP escribe la posicion del NEMA23 como `int32_t` en `%VD0`:
+| Prio | LED | Estado |
+|---|---|---|
+| 🔴 1 | Rojo fijo (5s) | Error — PabsErr, HomeErr, fallo MODBUS |
+| 🟡 2 | Amarillo respiración rápida | Motor en movimiento |
+| 🟢 3 | Verde respiración lenta | Sistema listo |
+| 🟠 4 | Naranja blink | No listo — falta HomeOK o enable |
+| 🔵 5 | Azul tenue | Solo WiFi — sin contacto PLC |
+| ⚪ 6 | Blanco tenue | Boot — arrancando |
 
-- `%VW0` recibe `(pos & 0xFFFF)`.
-- `%VW2` recibe `(pos >> 16)`.
-
-El programa del PLC no debe escribir ni incrementar `%VD0` si se quiere que la
-lectura posterior coincida exactamente con la posicion enviada por la ESP.
-
-Al leer, la ESP reconstruye:
-
-```c
-plc_value_32 = ((uint32_t)VW2 << 16) | VW0;
-```
-
-Programa basico para cargar en KincoBuilder:
-
-- [`Info/KincoBuilder_MK043E-20DT_programa_basico.md`](Info/KincoBuilder_MK043E-20DT_programa_basico.md)
-
-## Modos de puente
-
-- **Modbus TCP -> RS485**: las tramas Modbus TCP recibidas por WiFi se forwardean al bus RS485.
-- **RAW TCP -> RS485**: puente transparente.
-- **Local Only**: solo comandos al motor NEMA23.
-- **CAN**: mensajes CAN bus independientes.
-
-## Salidas de relé ("topes") vía Modbus
-
-Dos relés en **GPIO 13/14** (activo-alto, ver advertencia de microSD en el Pinout)
-se controlan como **coils Modbus** dirigidos al **slave ID local 247 (0xF7)**.
-Las tramas a ese ID se procesan en el gateway y **no** se reenvían al bus RS485
-(filtro local activado). El gateway responde de forma síncrona, así que un master
-estándar no da timeout.
-
-- **Conexión**: Modbus **TCP**, `<IP>:502`, **Unit ID = 247 (0xF7)**
-- **Mapa de coils**: coil `0` = Relé 1 (GPIO 13) · coil `1` = Relé 2 (GPIO 14)
-
-| Acción | Función | Detalle |
-|--------|---------|---------|
-| Encender Relé 1 | **FC 05** (Write Single Coil) | coil `0`, valor `0xFF00` |
-| Apagar Relé 1 | **FC 05** | coil `0`, valor `0x0000` |
-| Relé 2 | **FC 05** | coil `1` |
-| Ambos a la vez | **FC 0F** (Write Multiple Coils) | start `0`, qty `2` |
-| Leer estado | **FC 01** (Read Coils) | start `0`, qty `2` |
-
-Direcciones o valores inválidos devuelven una excepción Modbus estándar
-(`0x01` función ilegal, `0x02` dirección ilegal, `0x03` valor ilegal).
-Los relés arrancan **desactivados** tras el reset.
-
-## Indicador de estado (WS2812B)
-
-El LED RGB de **GPIO 4** muestra el estado del gateway con prioridad (los estados
-críticos pisan a los informativos). Siempre está encendido con alguna señal:
-
-| Prioridad | Estado | Color | Patrón |
-|-----------|--------|-------|--------|
-| 1 (crítico) | Motor en **E-STOP** | 🔴 Rojo | Parpadeo rápido |
-| 2 (actividad) | **Motor moviéndose** | 🩵 Cian | Fijo |
-| 3 (reposo) | **STA conectado** a la red | 🟢 Verde | Respiración |
-| 3 (reposo) | **Solo AP** (sin STA) | 🔵 Azul | Respiración |
-| 3 (reposo) | Arrancando / sin red | ⚪ Blanco tenue | Respiración |
+La actividad MODBUS aparece como micro-flash overlay que no reemplaza el estado base.
 
 ## Estructura del proyecto
 
 ```text
-nema23_lilygo/
+nema23_kinco_modbus_esp32/
 ├── CMakeLists.txt
-├── sdkconfig.defaults
+├── sdkconfig / sdkconfig.defaults
 ├── partitions.csv
 ├── main/
 │   ├── CMakeLists.txt
-│   ├── idf_component.yml        <- Dependencias (espressif/led_strip)
-│   ├── main.cpp                 <- Entry point
-│   ├── pin_config.h             <- GPIO mapping
-│   ├── wifi_manager.h/cpp       <- WiFi AP/STA + HTTP
-│   ├── bridge_rs485.h/cpp       <- Modbus TCP <-> RS485 + relés (coils)
-│   ├── relay_control.h/cpp      <- Salidas de relé (GPIO 13/14)
-│   ├── status_led.h/cpp         <- Indicador WS2812B por estado
-│   ├── can_bus.h/cpp            <- CAN bus (TWAI)
-│   ├── stepper_control.h/cpp    <- NEMA23 via FastAccelStepper
-│   └── stepper_motor_encoder.c/h <- RMT encoder
-├── components/
-│   └── FastAccelStepper/        <- Librería de aceleración
+│   ├── idf_component.yml
+│   ├── main.cpp
+│   ├── pin_config.h
+│   ├── wifi_manager.cpp / .h       ← WiFi AP + HTTP server + lógica Kinco
+│   ├── bridge_rs485.cpp / .h       ← MODBUS RTU sobre RS485
+│   ├── status_led.cpp / .h         ← Indicador WS2812B
+│   ├── can_bus.cpp / .h            ← CAN bus (monitoreo pasivo)
+│   └── relay_control.cpp / .h      ← Salidas de relé
 ├── Info/
-│   ├── KincoBuilder_MK043E-20DT_programa_basico.md
-│   ├── Kinco_K5_Software_Manual_20210510.pdf
-│   └── Kinco_MK043E-20DT_Spec_Sheet.pdf
-└── scripts/
-    ├── build.ps1
-    ├── flash_monitor.ps1
-    ├── ensure_idf.ps1
-    └── doctor.ps1               <- Verifica entorno ESP-IDF
+│   ├── kinco_1motor_modbus_40070.ilp    ← Programa PLC (IL)
+│   ├── kinco_1motor_modbus_40070.kgv    ← Variables globales PLC
+│   ├── kinco_1motor_modbus_40070_var_global.csv ← CSV para KincoBuilder
+│   ├── preview_kinco_ui.html            ← Preview offline de la UI
+│   └── programas_prueba/                ← Programas de prueba y docs
+├── scripts/
+│   ├── build.ps1
+│   ├── flash_monitor.ps1
+│   └── ensure_idf.ps1
+└── managed_components/
+    └── espressif__led_strip/
 ```
 
 ## Requisitos
 
-- **ESP-IDF** v5.5.1 (o superior)
-- **FastAccelStepper** incluido en `components/`
-- Driver NEMA23 externo (DM542, TB6600 o similar)
-- Fuente de alimentación adecuada para el motor
+- **ESP-IDF** v5.5.1
+- Python 3.12 (con venv de ESP-IDF configurado)
+- Kinco MK043E-20DT con programa `kinco_1motor_modbus_40070.ilp` cargado
+- Driver NEMA23 externo + fuente de alimentación
 
-## Estado de revision (2026-05-27)
+## Archivos relacionados
 
-Revision tecnica de factibilidad. El proyecto compila (`build_marti/nema23_lilygo.bin`)
-y la arquitectura es solida. Se corrigieron los siguientes **bugs bloqueantes**
-que impedían que el hardware funcionara; el pinout fue verificado contra el repo
-oficial [Xinyuan-LilyGO/T-CAN485](https://github.com/Xinyuan-LilyGO/T-CAN485).
-
-### Correcciones aplicadas
-
-1. **CAN no transmitía — pin SE invertido.** `CAN_SE` (GPIO 23) se ponía en HIGH,
-   lo que deja al SN65HVD231 en *standby*. Ahora se pone en **LOW** (high-speed),
-   igual que el ejemplo oficial. → [`can_bus.cpp`](main/can_bus.cpp)
-2. **RS485 no transmitía — transceiver en shutdown.** Los pines de habilitación
-   del MAX13487 nunca se manejaban y estaban mal etiquetados. Pinout real:
-   `RS485_EN`=GPIO17 (/RE), `RS485_SE`=GPIO19 (SHDN); **ambos deben ir HIGH**.
-   Se corrigieron las etiquetas en [`pin_config.h`](main/pin_config.h) y se
-   habilita el transceiver en [`bridge_rs485.cpp`](main/bridge_rs485.cpp). Además
-   se cambió de `UART_MODE_RS485_HALF_DUPLEX` a `UART_MODE_UART` porque el
-   MAX13487 conmuta la dirección por hardware (auto-direction).
-3. **Puente Modbus inservible — faltaba CRC16.** Las tramas Modbus TCP no llevan
-   CRC, pero RTU lo exige. Ahora se calcula y anexa el CRC16 en TCP→RTU, y se
-   valida/descarta en RTU→TCP. → [`bridge_rs485.cpp`](main/bridge_rs485.cpp)
-4. **El panel web no movía el motor.** `POST /api/command` solo logueaba. Ahora
-   parsea el JSON y enruta a `stepper_control_*` / `bridge_rs485_set_mode`, y
-   `GET /api/status` reporta posición/velocidad/estado reales.
-   → [`wifi_manager.cpp`](main/wifi_manager.cpp)
-5. **Acceso local al PLC Kinco por RS485.** Se agrego `bridge_rs485_transact()`
-   con mutex de UART para que el HTTP server pueda hacer transacciones Modbus
-   RTU directas sin chocar con el puente TCP -> RS485.
-   -> [`bridge_rs485.cpp`](main/bridge_rs485.cpp)
-6. **Lectura/escritura de posicion NEMA23 en PLC Kinco.** El comando
-   `plc_send_step` escribe `%VD0` como DINT de 32 bits usando `%VW0/%VW2`
-   con FC16; `plc_read_vw` lee ambos words con FC03 y reconstruye
-   `plc_value_32`. -> [`wifi_manager.cpp`](main/wifi_manager.cpp)
-
-### Pendiente (TODOs conocidos, no bloqueantes para arrancar)
-
-- **Homing real**: [`stepper_control.cpp`](main/stepper_control.cpp) `stepper_control_home()`
-  todavía no usa los finales de carrera (GPIO 32/33); resetea la posición a 0 sin moverse.
-- **Dispatch de Modbus local y CAN**: `cmd_processor_task` en [`main.cpp`](main/main.cpp)
-  recibe tramas pero aún no las interpreta (function codes / mensajes CAN).
-- **`can_mode` desde la web**: se mapea a `BRIDGE_MODE_LOCAL_ONLY` como placeholder;
-  no existe un modo puente CAN dedicado en el enum.
-- **Servidor Modbus TCP de un solo cliente**: `tcp_server_task` atiende una conexión
-  a la vez (loop bloqueante). Suficiente para un master único.
-- **Parser JSON mínimo**: `wifi_manager.cpp` usa búsqueda de strings, no un parser
-  completo. Para cargas arbitrarias conviene migrar a cJSON.
-- **Credenciales WiFi hardcodeadas** en [`main.cpp`](main/main.cpp); mover a NVS/menuconfig.
-- **Nivel lógico 3.3 V** hacia el driver DM542/TB6600: validar contra la hoja de datos
-  del driver (común-ánodo); algunos requieren ~5 V para los optoacopladores.
+| Archivo | Descripción |
+|---|---|
+| `Info/kinco_1motor_modbus_40070.ilp` | Programa del PLC en Instruction List |
+| `Info/kinco_1motor_modbus_40070.kgv` | Variables globales del PLC |
+| `Info/kinco_1motor_modbus_40070_var_global.csv` | CSV para importar en KincoBuilder |
+| `Info/kinco_1motor_modbus_40070_ladder.md` | Documentación del ladder |
+| `Info/KincoBuilder_MK043E-20DT_programa_basico.md` | Programa básico de prueba |
+| `Info/kinco_mk043e_nema23_context.md` | Contexto técnico del proyecto |

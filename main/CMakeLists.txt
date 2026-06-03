@@ -6,13 +6,10 @@ idf_component_register(
         "wifi_manager.cpp"
         "bridge_rs485.cpp"
         "can_bus.cpp"
-        "stepper_control.cpp"
-        "stepper_motor_encoder.c"
         "status_led.cpp"
         "relay_control.cpp"
     INCLUDE_DIRS
         "."
-        "../components/FastAccelStepper/src"
     REQUIRES
         driver
         esp_wifi

@@ -6,6 +6,21 @@ function Import-EspIdfEnvironment {
         return
     }
 
+    # Fix Python: Windows Store stub bloquea python.exe real
+    $realPythonPaths = @(
+        "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python312",
+        "C:\Python312",
+        "C:\Python311",
+        "C:\Python3"
+    )
+    foreach ($pyPath in $realPythonPaths) {
+        if (Test-Path (Join-Path $pyPath "python.exe")) {
+            $env:PATH = "$pyPath;$pyPath\Scripts;$env:PATH"
+            Write-Host "[*] Python fijado: $pyPath" -ForegroundColor DarkGray
+            break
+        }
+    }
+
     $candidatePaths = @()
 
     if ($env:IDF_PATH) {

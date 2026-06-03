@@ -1,62 +1,127 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "ESP-IDF: Build",
-            "type": "shell",
-            "command": "powershell",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", "${workspaceFolder}\\scripts\\build.ps1"
-            ],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": ["$gcc"]
-        },
-        {
-            "label": "ESP-IDF: Clean & Build",
-            "type": "shell",
-            "command": "powershell",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", "${workspaceFolder}\\scripts\\build.ps1",
-                "-Clean"
-            ],
-            "problemMatcher": ["$gcc"]
-        },
-        {
-            "label": "ESP-IDF: Flash & Monitor",
-            "type": "shell",
-            "command": "powershell",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", "${workspaceFolder}\\scripts\\flash_monitor.ps1",
-                "-Port", "${input:serialPort}"
-            ]
-        },
-        {
-            "label": "ESP-IDF: Set Target ESP32",
-            "type": "shell",
-            "command": "powershell",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-Command",
-                ". '${workspaceFolder}\\scripts\\ensure_idf.ps1'; Import-EspIdfEnvironment; Set-Location '${workspaceFolder}'; idf.py -B build_marti set-target esp32"
-            ]
-        }
-    ],
-    "inputs": [
-        {
-            "id": "serialPort",
-            "type": "promptString",
-            "description": "Puerto serie (ej: COM4)",
-            "default": "COM4"
-        }
-    ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build",
+			"dependsOn": "ESP-IDF: Build",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "ESP-IDF: Build",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\build.ps1",
+				"-BuildDir",
+				"build_marti"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "ESP-IDF: Clean & Build",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\build.ps1",
+				"-BuildDir",
+				"build_marti",
+				"-Clean"
+			],
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "ESP-IDF: Flash & Monitor",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\flash_monitor.ps1",
+				"-BuildDir",
+				"build_marti",
+				"-Port",
+				"${input:serialPort}"
+			]
+		},
+		{
+			"label": "ESP-IDF: Flash Only",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\flash_monitor.ps1",
+				"-BuildDir",
+				"build_marti",
+				"-Port",
+				"${input:serialPort}",
+				"-NoMonitor"
+			]
+		},
+		{
+			"label": "ESP-IDF: Monitor",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". '${workspaceFolder}\\scripts\\ensure_idf.ps1'; Import-EspIdfEnvironment; Set-Location '${workspaceFolder}'; idf.py -B build_marti -p ${input:serialPort} monitor"
+			]
+		},
+		{
+			"label": "ESP-IDF: Set Target ESP32",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". '${workspaceFolder}\\scripts\\ensure_idf.ps1'; Import-EspIdfEnvironment; Set-Location '${workspaceFolder}'; idf.py -B build_marti set-target esp32"
+			]
+		},
+		{
+			"label": "shell: ESP-IDF: Full Clean & Build",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				". '${workspaceFolder}\\scripts\\ensure_idf.ps1'; Import-EspIdfEnvironment; Set-Location '${workspaceFolder}'; idf.py -B build_marti fullclean; idf.py -B build_marti build"
+			]
+		}
+	],
+	"inputs": [
+		{
+			"id": "serialPort",
+			"type": "promptString",
+			"description": "Puerto serie (ej: COM4)",
+			"default": "COM4"
+		}
+	]
 }

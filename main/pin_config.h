@@ -5,7 +5,6 @@
  * - RS485 (MAX13487)
  * - CAN bus (SN65HVD231 via TWAI)
  * - WS2812B RGB LED
- * - NEMA23 stepper (STEP/DIR/EN)
  * - UART de debug
  * - Boost converter enable
  */
@@ -52,19 +51,6 @@ extern "C" {
  * ================================================================ */
 #define WS2812B_DATA_GPIO       4
 #define WS2812B_LED_COUNT       1
-
-/* ================================================================
- * NEMA23 Stepper Motor (via FastAccelStepper + RMT)
- * Conectar a driver externo (e.g., DM542 o TB6600)
- * ================================================================ */
-#define STEPPER_STEP_GPIO       5       // STEP — RMT channel
-#define STEPPER_DIR_GPIO        18      // DIR
-#define STEPPER_EN_GPIO         25      // ENABLE (activo bajo típicamente)
-#define STEPPER_RMT_RESOLUTION  10000000 // 10 MHz RMT tick
-
-/* Pines opcionales para finales de carrera */
-#define LIMIT_SW_MIN_GPIO       32
-#define LIMIT_SW_MAX_GPIO       33
 
 /* ================================================================
  * Salidas de relé ("topes") — controladas por Modbus coils

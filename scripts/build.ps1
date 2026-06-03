@@ -2,6 +2,7 @@
 # Uso: .\build.ps1 [-Clean] [-BuildDir build_marti]
 param(
     [switch]$Clean,
+    [switch]$SetTarget,
     [string]$BuildDir = "build_marti"
 )
 
@@ -25,9 +26,14 @@ if ($Clean) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-Write-Host "[*] Configurando target ESP32..." -ForegroundColor Yellow
-idf.py -B $BuildDir set-target esp32
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$BuildNinja = Join-Path $BuildDir "build.ninja"
+if ($SetTarget -or -not (Test-Path $BuildNinja)) {
+    Write-Host "[*] Configurando target ESP32..." -ForegroundColor Yellow
+    idf.py -B $BuildDir set-target esp32
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} else {
+    Write-Host "[*] Target ESP32 ya configurado en $BuildDir; omitiendo set-target." -ForegroundColor DarkGray
+}
 
 Write-Host "[*] Compilando..." -ForegroundColor Yellow
 idf.py -B $BuildDir build
