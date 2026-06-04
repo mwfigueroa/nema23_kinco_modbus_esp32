@@ -44,7 +44,7 @@ static const char *TAG = "main";
  * ================================================================ */
 
 #define PLC_RS485_TEST_ENABLE       0
-#define PLC_RS485_TEST_BAUD         19200
+#define PLC_RS485_TEST_BAUD         9600
 #define PLC_RS485_TEST_SLAVE_ID     1
 #define PLC_RS485_TEST_REGISTER     50      /* Kinco eje 0 control word: 40051 -> address base 0 = 50 */
 #define PLC_RS485_TEST_VALUE        0x0001

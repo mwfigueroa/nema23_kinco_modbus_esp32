@@ -1,25 +1,34 @@
-# NEMA23 Kinco MODBUS ESP32 — Testing Tool
+# NEMA23 Kinco MODBUS ESP32 - Testing Tool
 
-Herramienta de prueba y control para motor **NEMA23** con driver **Kinco
-MK043E-20DT** vía **MODBUS RTU (RS485)** desde un **ESP32 LILYGO T-CAN485**.
-Interfaz web embebida para ejecutar movimientos PABS/HOME, ciclo automático
-configurable, y monitoreo en tiempo real de la posición.
+Herramienta de prueba para mover un motor NEMA23 con un PLC Kinco
+MK043E-20DT, usando un ESP32 LILYGO T-CAN485 como interfaz WiFi/HTTP y
+puente MODBUS TCP -> MODBUS RTU por RS485.
+
+El estado actual del proyecto esta enfocado en el programa PLC
+`pabs_basico_5000`: el ESP32 escribe un destino PABS en `40051-40052` y la PLC
+hace el ciclo completo:
+
+```text
+idle -> habilita driver -> PABS a destino -> espera 3 s -> PABS a 0 -> deshabilita
+```
+
+No se usa HOME, STOP ni palabra de control `40070` en esta version de prueba.
 
 ## Hardware
 
-| Componente | Especificación |
+| Componente | Especificacion |
 |---|---|
-| **MCU** | ESP32 — LILYGO T-CAN485 |
-| **PLC** | Kinco MK043E-20DT (esclavo MODBUS RTU) |
-| **Motor** | NEMA23 con driver externo |
-| **RS485** | MAX13487EESA+ (half-duplex, UART2) |
-| **WiFi** | 802.11 b/g/n — modo STA (cliente de red `NS-LAB`) |
-| **LED** | WS2812B RGB (GPIO 4) — indicador de estado del sistema |
+| MCU | ESP32 - LILYGO T-CAN485 |
+| PLC | Kinco MK043E-20DT como esclavo MODBUS RTU |
+| Motor | NEMA23 con driver externo |
+| RS485 | MAX13487EESA+ sobre UART2 |
+| WiFi | STA, cliente de la red `NS-LAB` |
+| LED | WS2812B RGB en GPIO 4 |
 
 ## Pinout relevante
 
-| Función | GPIO |
-|---|---|
+| Funcion | GPIO |
+|---|---:|
 | RS485 TX | 22 |
 | RS485 RX | 21 |
 | RS485 EN (/RE) | 17 |
@@ -28,231 +37,246 @@ configurable, y monitoreo en tiempo real de la posición.
 
 ## Quick Start
 
-### 1. Compilar
+### 1. Cargar el programa PLC
+
+En KincoBuilder, cargar/importar:
+
+| Archivo | Uso |
+|---|---|
+| `Info/programas_prueba/pabs_basico_5000.ilp` | Programa IL del PLC |
+| `Info/programas_prueba/pabs_basico_5000.kgv` | Variables globales |
+| `Info/programas_prueba/pabs_basico_5000_var_global.csv` | CSV alternativo para importar variables |
+| `Info/programas_prueba/pabs_basico_5000_ladder.md` | Documentacion del ladder |
+
+Dejar la PLC en RUN con MODBUS RTU Slave ID `1`, `9600 8N1`.
+
+### 2. Compilar firmware ESP32
 
 ```powershell
-.\scripts\build.ps1
+.\scripts\build.ps1 -BuildDir build_marti
 ```
 
-El proyecto compila en `build_marti/`.
-
-### 2. Flashear
+### 3. Flashear y monitorear
 
 ```powershell
 .\scripts\flash_monitor.ps1 -Port COM4
 ```
 
-### 3. Conectarse a la interfaz web
+### 4. Abrir la interfaz web
 
-La ESP32 se conecta como **cliente WiFi (STA)** a la red del laboratorio. La IP
-se asigna por DHCP y se muestra en el log serie:
+La ESP32 se conecta como cliente WiFi a `NS-LAB`. La IP aparece en el log serie:
 
-```
+```text
 wifi_mgr: WiFi STA IP: x.x.x.x
 ```
 
-| Parámetro | Valor |
-|---|---|
-| **SSID** | `NS-LAB` |
-| **IP** | DHCP — ver log serie `WiFi STA IP: x.x.x.x` |
-| **Puerto HTTP** | `80` |
+Abrir:
 
-Abrir `http://<IP_STA>/` en el navegador.
+```text
+http://<IP_STA>/
+```
 
 ## Interfaz web
 
-La página principal (`/`) es el panel de control del motor Kinco.
+La pagina principal (`/`) muestra el panel `Kinco PABS 5000`.
 
-> 💡 Para una preview offline de la interfaz, abrí `Info/preview_kinco_ui.html` en tu navegador.
+Funciones disponibles:
 
-### Secciones
-
-| Sección | Función |
+| Seccion | Funcion |
 |---|---|
-| **Contador de pasos** | Posición actual en tiempo real con barra de progreso |
-| **Enable / HOME / STOP** | Control básico del driver y HOME |
-| **Movimientos** | PABS relativos de ±5000 pasos |
-| **🔄 Auto Cycle** | Ciclo automático configurable: N pasos CW → regreso a 0 CCW |
-| **Reset / Lectura** | Reset de posición, reset de estados, lectura del PLC |
-| **Tarjetas de estado** | Datos del motor + bits de `%VW302` en tiempo real |
-| **Log JSON** | Respuesta completa del último comando |
-
-### Auto Cycle
-
-El botón verde ejecuta una secuencia automática:
-
-1. **Fase CW**: PABS a N pasos con velocidad configurable
-2. **Fase CCW**: regreso a 0 con velocidad de retorno
-
-Campos configurables en la UI:
-
-| Campo | Default | Rango |
-|---|---|---|
-| **Steps** | 15000 | 1 – 999999 |
-| **CW Hz** | 5000 | 125 – 200000 |
-| **CCW Hz** | 2500 | 125 – 200000 |
-
-El contador se actualiza cada **500 ms** durante la ejecución. El botón se
-deshabilita mientras corre (~10-30 s).
+| Posicion actual | Lee `40101-40102` y muestra la posicion copiada desde `%SMD212` |
+| `+5000 y volver a 0` | Escribe `5000` en `40051-40052`; la PLC hace el ciclo completo |
+| `-5000 y volver a 0` | Escribe `-5000` en `40051-40052`; la PLC hace el ciclo completo |
+| Parametros | Ajusta max Hz, min Hz y aceleracion antes de enviar el destino |
+| Bits `40152` | Muestra estado del ciclo PLC |
+| Log JSON | Ultima respuesta de `/api/command` |
 
 ## API HTTP
 
-| Método | Endpoint | Descripción |
+| Metodo | Endpoint | Descripcion |
 |---|---|---|
 | `GET` | `/` | Panel de control HTML |
-| `GET` | `/api/status` | Estado del sistema (JSON) |
-| `POST` | `/api/command` | Enviar comando (JSON) |
+| `GET` | `/api/status` | Estado general del ESP32 |
+| `POST` | `/api/command` | Comandos JSON hacia la PLC |
 
-### Comandos disponibles
+### Comandos utiles para `pabs_basico_5000`
+
+Leer estado:
 
 ```json
-{"cmd": "kinco_status"}           // Leer estado completo del motor
-{"cmd": "kinco_enable", "arg": 1}  // Enable driver (1=ON, 0=OFF)
-{"cmd": "kinco_home", "arg": 0}    // Ejecutar HOME
-{"cmd": "kinco_pabs", "arg": 10000, "speed": 5000}  // PABS a posición
-{"cmd": "kinco_move_delta", "arg": 5000}  // PABS relativo ±N pasos
-{"cmd": "kinco_stop"}             // PSTOP
-{"cmd": "kinco_reset_pos"}        // Reset posición PTO0
-{"cmd": "kinco_reset_status"}     // Reset estados internos
-{"cmd": "kinco_auto_cycle", "arg": 15000, "speed": 5000, "minf": 2500}
+{"cmd":"kinco_status"}
 ```
 
-Parámetros opcionales: `axis` (default 0), `speed`, `minf`, `time`, `dir`.
+Enviar un ciclo a `+5000` pasos y vuelta automatica a `0`:
 
-### Ejemplo con PowerShell
+```json
+{"cmd":"kinco_pabs","axis":0,"arg":5000,"speed":2000,"minf":300,"time":300}
+```
+
+Enviar un ciclo a `-5000` pasos:
+
+```json
+{"cmd":"kinco_pabs","axis":0,"arg":-5000,"speed":2000,"minf":300,"time":300}
+```
+
+`arg` no puede ser `0`, porque `40051-40052 = 0` se usa como estado idle.
+
+### Ejemplo PowerShell
 
 ```powershell
 Invoke-RestMethod `
   -Uri "http://<IP_STA>/api/command" `
   -Method POST `
   -ContentType "application/json" `
-  -Body '{"cmd":"kinco_auto_cycle","arg":20000,"speed":6000,"minf":3000}'
+  -Body '{"cmd":"kinco_pabs","axis":0,"arg":5000,"speed":2000,"minf":300,"time":300}'
 ```
 
-## Mapa MODBUS Kinco ↔ ESP32
+### Comandos no usados en esta prueba
 
-El programa del PLC (`kinco_1motor_modbus_40070.ilp`) expone:
+Estos comandos pertenecian al programa anterior con palabra de control `40070`
+y el firmware los rechaza para `pabs_basico_5000`:
 
-### Escritura (ESP32 → PLC)
+```json
+{"cmd":"kinco_enable","arg":1}
+{"cmd":"kinco_home","arg":0}
+{"cmd":"kinco_stop"}
+{"cmd":"kinco_reset_pos"}
+{"cmd":"kinco_reset_status"}
+```
 
-| MODBUS | Variable Kinco | Tipo | Función |
-|---|---:|---|---|
-| **40070** | `%VW138` | WORD | Palabra de control (enable, start, stop, reset) |
-| 40051-40052 | `%VD100` | DINT | Destino PABS |
-| 40053-40054 | `%VD104` | DWORD | Frecuencia máxima PABS |
-| 40055 | `%VW108` | WORD | Frecuencia mínima PABS |
-| 40056 | `%VW110` | WORD | Tiempo aceleración PABS |
-| 40057 | `%VW112` | INT | Modo HOME |
-| 40058 | `%VW114` | INT | Dirección HOME |
-| 40059 | `%VW116` | WORD | Frecuencia mínima HOME |
-| 40060-40061 | `%VD118` | DWORD | Frecuencia máxima HOME |
-| 40062 | `%VW122` | WORD | Tiempo aceleración HOME |
+## Mapa MODBUS Kinco <-> ESP32
 
-### Lectura (PLC → ESP32)
+El programa PLC `pabs_basico_5000` expone:
 
-| MODBUS | Variable Kinco | Tipo | Función |
-|---|---:|---|---|
-| 40101-40102 | `%VD200` | DINT | Posición actual PTO0 |
-| 40152 | `%VW302` | WORD | Bits de estado |
-| 40153 | `%VW304` | WORD | ErrID PABS / STOP |
-| 40154 | `%VW306` | WORD | ErrID HOME |
+### Escritura ESP32 -> PLC
 
-### Bits de control (`%VW138` / 40070)
+| MODBUS | Kinco | Tipo | Funcion |
+|---:|---|---|---|
+| 40051-40052 | `%VD100` | DINT | Comando de pasos destino; distinto de `0` arranca ciclo |
+| 40053-40054 | `%VD104` | DWORD | Frecuencia maxima PABS |
+| 40055 | `%VW108` | WORD | Frecuencia minima PABS |
+| 40056 | `%VW110` | WORD | Tiempo de aceleracion/desaceleracion |
 
-| Bit | Valor | Función |
-|---|---:|---|
-| 0 | `0x0001` | Enable driver |
-| 1 | `0x0003` | Reset posición PTO0 |
-| 2 | `0x0005` | Start PABS |
-| 3 | `0x0009` | Start HOME |
-| 4 | `0x0011` | Reset estados |
-| 5 | `0x0021` | PSTOP |
+### Interno PLC
 
-### Bits de estado (`%VW302` / 40152)
+| Kinco | Tipo | Funcion |
+|---|---|---|
+| `%VD120` | DINT | Copia interna del destino recibido |
+| `%VD124` | DINT | Destino de vuelta a cero |
+| `%VD128` | DINT | Destino activo usado por la unica instruccion `PABS` |
+| `%M0.7` | BOOL | Pulso comun de arranque PABS |
 
-| Bit | Nombre | Significado |
-|---|---:|---|
-| 0 | HomeOK | HOME válido |
-| 1 | HomeDone | PHOME completado |
-| 2 | HomeErr | Error HOME |
-| 3 | PabsDone | PABS completado |
-| 4 | PabsErr | Error PABS |
-| 5 | PTO0 | Estado PTO0 |
-| 6 | HomingActive | HOME en curso |
-| 7 | PabsActive | PABS en curso |
-| 8 | HomeSensor | Sensor de HOME (I0.0) |
-| 9 | SystemReady | Sistema listo para PABS |
+### Lectura PLC -> ESP32
 
-## Configuración MODBUS RTU
+| MODBUS | Kinco | Tipo | Funcion |
+|---:|---|---|---|
+| 40101-40102 | `%VD200` | DINT | Posicion actual copiada desde `%SMD212` |
+| 40152 | `%VW302` | WORD | Bits de estado del ciclo |
+| 40153 | `%VW304` | WORD | `Err_Pabs`, low byte `%VB304` |
+| 40154 | `%VW306` | WORD | Reservado/limpiado |
 
-| Parámetro | Valor |
+Si el master usa direcciones base 0:
+
+```text
+40051-40052 -> address 50, quantity 2
+40053-40054 -> address 52, quantity 2
+40055       -> address 54
+40056       -> address 55
+40101-40102 -> address 100, quantity 2
+40152       -> address 151
+```
+
+## Bits de estado `40152` / `%VW302`
+
+| Bit | Direccion | Nombre | Significado |
+|---:|---|---|---|
+| 0 | `%V302.0` | CycleActive | Ciclo activo, driver habilitado |
+| 1 | `%V302.1` | MoveOutActive | Movimiento de ida activo |
+| 2 | `%V302.2` | WaitReturnActive | Esperando 3 s antes de volver |
+| 3 | `%V302.3` | ReturnActive | Movimiento de vuelta activo |
+| 4 | `%V302.4` | CycleDone | Ciclo completado correctamente |
+| 5 | `%V302.5` | CycleErr | Error de ciclo |
+| 6 | `%V302.6` | PabsOutDone | PABS de ida completado |
+| 7 | `%V302.7` | PabsOutErr | Error en PABS de ida |
+| 8 | `%V303.0` | PabsReturnDone | PABS de vuelta completado |
+| 9 | `%V303.1` | PabsReturnErr | Error en PABS de vuelta |
+| 10 | `%V303.2` | EnableOut | Estado de `%Q0.3` |
+| 11 | `%V303.3` | WaitDone | Timer de espera terminado |
+
+## Cableado PLC usado por `pabs_basico_5000`
+
+| Funcion | PLC |
+|---|---|
+| STEP / PUL | `%Q0.0` |
+| DIR | `%Q0.2` |
+| Enable driver | `%Q0.3` |
+
+`%Q0.0` y `%Q0.2` los maneja la instruccion `PABS`; no se fuerzan desde ladder.
+
+## Configuracion MODBUS RTU
+
+| Parametro | Valor |
 |---|---|
 | Slave ID PLC | `1` |
-| Baudrate | `19200` |
+| Baudrate | `9600` |
 | Formato | `8N1` |
-| Timeout | 700 ms |
-| Edge pulse | 100 ms |
+| Timeout firmware | 700 ms |
 
-## Indicador LED (WS2812B)
+## Indicador LED
 
-El LED RGB refleja el estado del sistema por prioridad:
+| Estado | LED |
+|---|---|
+| Error MODBUS o error de ciclo | Rojo |
+| Ciclo activo o motor moviendo | Amarillo |
+| PLC responde y ciclo idle | Verde |
+| Solo WiFi / sin lectura PLC | Azul |
+| Boot | Blanco |
 
-| Prio | LED | Estado |
-|---|---|---|
-| 🔴 1 | Rojo fijo (5s) | Error — PabsErr, HomeErr, fallo MODBUS |
-| 🟡 2 | Amarillo respiración rápida | Motor en movimiento |
-| 🟢 3 | Verde respiración lenta | Sistema listo |
-| 🟠 4 | Naranja blink | No listo — falta HomeOK o enable |
-| 🔵 5 | Azul tenue | Solo WiFi — sin contacto PLC |
-| ⚪ 6 | Blanco tenue | Boot — arrancando |
-
-La actividad MODBUS aparece como micro-flash overlay que no reemplaza el estado base.
+La actividad MODBUS puede aparecer como flash breve de lectura/escritura.
 
 ## Estructura del proyecto
 
 ```text
 nema23_kinco_modbus_esp32/
-├── CMakeLists.txt
-├── sdkconfig / sdkconfig.defaults
-├── partitions.csv
-├── main/
-│   ├── CMakeLists.txt
-│   ├── idf_component.yml
-│   ├── main.cpp
-│   ├── pin_config.h
-│   ├── wifi_manager.cpp / .h       ← WiFi AP + HTTP server + lógica Kinco
-│   ├── bridge_rs485.cpp / .h       ← MODBUS RTU sobre RS485
-│   ├── status_led.cpp / .h         ← Indicador WS2812B
-│   ├── can_bus.cpp / .h            ← CAN bus (monitoreo pasivo)
-│   └── relay_control.cpp / .h      ← Salidas de relé
-├── Info/
-│   ├── kinco_1motor_modbus_40070.ilp    ← Programa PLC (IL)
-│   ├── kinco_1motor_modbus_40070.kgv    ← Variables globales PLC
-│   ├── kinco_1motor_modbus_40070_var_global.csv ← CSV para KincoBuilder
-│   ├── preview_kinco_ui.html            ← Preview offline de la UI
-│   └── programas_prueba/                ← Programas de prueba y docs
-├── scripts/
-│   ├── build.ps1
-│   ├── flash_monitor.ps1
-│   └── ensure_idf.ps1
-└── managed_components/
-    └── espressif__led_strip/
+|-- CMakeLists.txt
+|-- sdkconfig / sdkconfig.defaults
+|-- partitions.csv
+|-- main/
+|   |-- main.cpp
+|   |-- pin_config.h
+|   |-- wifi_manager.cpp / .h
+|   |-- bridge_rs485.cpp / .h
+|   |-- status_led.cpp / .h
+|   |-- can_bus.cpp / .h
+|   `-- relay_control.cpp / .h
+|-- Info/
+|   |-- programas_prueba/
+|   |   |-- pabs_basico_5000.ilp
+|   |   |-- pabs_basico_5000.kgv
+|   |   |-- pabs_basico_5000_var_global.csv
+|   |   `-- pabs_basico_5000_ladder.md
+|   `-- preview_kinco_ui.html
+|-- scripts/
+|   |-- build.ps1
+|   |-- flash_monitor.ps1
+|   `-- ensure_idf.ps1
+`-- managed_components/
 ```
 
 ## Requisitos
 
-- **ESP-IDF** v5.5.1
-- Python 3.12 (con venv de ESP-IDF configurado)
-- Kinco MK043E-20DT con programa `kinco_1motor_modbus_40070.ilp` cargado
-- Driver NEMA23 externo + fuente de alimentación
+- ESP-IDF v5.5.1
+- Python 3.12 con entorno ESP-IDF configurado
+- Kinco MK043E-20DT con `pabs_basico_5000` cargado
+- Driver NEMA23 externo y fuente de alimentacion
 
 ## Archivos relacionados
 
-| Archivo | Descripción |
+| Archivo | Descripcion |
 |---|---|
-| `Info/kinco_1motor_modbus_40070.ilp` | Programa del PLC en Instruction List |
-| `Info/kinco_1motor_modbus_40070.kgv` | Variables globales del PLC |
-| `Info/kinco_1motor_modbus_40070_var_global.csv` | CSV para importar en KincoBuilder |
-| `Info/kinco_1motor_modbus_40070_ladder.md` | Documentación del ladder |
-| `Info/KincoBuilder_MK043E-20DT_programa_basico.md` | Programa básico de prueba |
-| `Info/kinco_mk043e_nema23_context.md` | Contexto técnico del proyecto |
+| `Info/programas_prueba/pabs_basico_5000.ilp` | Programa PLC en IL (21 redes logicas, ~27 fisicas — optimizado desde 88) |
+| `Info/programas_prueba/pabs_basico_5000.kgv` | Variables globales PLC |
+| `Info/programas_prueba/pabs_basico_5000_var_global.csv` | CSV para KincoBuilder |
+| `Info/programas_prueba/pabs_basico_5000_ladder.md` | Documentacion del ladder |
+| `Info/KincoBuilder_MK043E-20DT_programa_basico.md` | Programa basico de referencia |
+| `Info/kinco_mk043e_nema23_context.md` | Contexto tecnico del proyecto |
