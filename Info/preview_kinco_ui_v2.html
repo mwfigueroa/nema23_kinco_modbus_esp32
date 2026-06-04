@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kinco PABS 5000 — Preview</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{font-family:Arial,sans-serif;margin:0;background:#111827;color:#e5e7eb}
+main{max-width:820px;margin:0 auto;padding:14px}
+h1{font-size:22px;margin:0 0 5px;color:#f9fafb}
+.sub{color:#9ca3af;font-size:13px;margin:0 0 12px}
+section{border:1px solid #374151;border-radius:8px;padding:12px;margin:10px 0;background:#1f2937}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{background:#2563eb;color:#fff;border:0;border-radius:6px;padding:11px 14px;cursor:pointer;min-height:40px;font-weight:700}
+button:hover{background:#1d4ed8}button:disabled{background:#4b5563;cursor:not-allowed}
+.move{font-size:17px;min-width:165px}.danger{background:#dc2626}
+.ok{color:#34d399}.bad{color:#f87171}.warn{color:#fbbf24}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:13px}
+.kv span:nth-child(odd){color:#9ca3af}.mono{font-family:Consolas,monospace}
+label{color:#9ca3af;font-size:13px;display:flex;align-items:center;gap:5px}
+input{background:#111827;color:#e5e7eb;border:1px solid #4b5563;border-radius:6px;padding:8px 9px;width:92px;font-size:14px;text-align:center}
+.counter{background:#111827;border:2px solid #374151;border-radius:8px;padding:14px;text-align:center}
+.counter .big{font:700 52px/1 Consolas,monospace;color:#34d399}
+.counter .label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+.status{font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto;max-height:210px;background:#111827;border-radius:6px;padding:8px}
+.muted{color:#9ca3af;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+
+<h1>Kinco PABS 5000</h1>
+<p class="sub">PLC pabs_basico_5000: escribir pasos en 40051, la PLC habilita, mueve, espera 3 s, vuelve a cero y deshabilita.</p>
+
+<!-- ====== COUNTER: Posición actual ====== -->
+<div class="counter">
+  <div class="label">Posicion actual 40101</div>
+  <div class="big" id="pos">0</div>
+  <div class="muted" id="phase">Sin lectura</div>
+</div>
+
+<!-- ====== BOTONES PRINCIPALES ====== -->
+<section>
+  <div class="row">
+    <button class="move" onclick="this.blur()">+5000 y volver a 0</button>
+    <button class="move" onclick="this.blur()">-5000 y volver a 0</button>
+    <button onclick="this.blur()">Leer estados</button>
+  </div>
+</section>
+
+<!-- ====== PARÁMETROS CONFIGURABLES ====== -->
+<section>
+  <div class="row">
+    <label>Pasos<input id="steps" type="number" value="5000" min="1" max="999999" step="1000"></label>
+    <label>Max Hz<input id="maxf" type="number" value="2000" min="125" max="200000" step="100"></label>
+    <label>Min Hz<input id="minf" type="number" value="300" min="125" max="65535" step="25"></label>
+    <label>Accel <input id="time" type="number" value="300" min="1" max="65535" step="50"></label>
+    <button onclick="this.blur()">Enviar +pasos</button>
+    <button onclick="this.blur()">Enviar -pasos</button>
+  </div>
+  <p class="muted">Registros: pasos 40051-40052, max 40053-40054, min 40055, accel 40056.</p>
+</section>
+
+<!-- ====== PANELES DE ESTADO ====== -->
+<section>
+  <div class="grid">
+    <div>
+      <strong>Registros</strong>
+      <div class="kv" id="regs">
+        <span>Link</span><span class="ok">OK</span>
+        <span>Comando 40051</span><span class="mono">0</span>
+        <span>Max 40053</span><span class="mono">2000</span>
+        <span>Min 40055</span><span class="mono">300</span>
+        <span>Accel 40056</span><span class="mono">300</span>
+        <span>Estado 40152</span><span class="mono">0x0000</span>
+        <span>Error ida 40153</span><span class="mono">0x0000</span>
+        <span>Error vuelta 40154</span><span class="mono">0x0000</span>
+        <span>Enable Q0.3</span><span class="bad">false</span>
+      </div>
+    </div>
+    <div>
+      <strong>Bits 40152</strong>
+      <div class="kv" id="bits">
+        <span>b0 CycleActive</span><span>false</span>
+        <span>b1 MoveOut</span><span>false</span>
+        <span>b2 WaitReturn</span><span>false</span>
+        <span>b3 Return</span><span>false</span>
+        <span>b4 Done</span><span class="bad">false</span>
+        <span>b5 CycleErr</span><span class="ok">false</span>
+        <span>b6 OutDone</span><span>false</span>
+        <span>b7 OutErr</span><span class="ok">false</span>
+        <span>b8 RetDone</span><span>false</span>
+        <span>b9 RetErr</span><span class="ok">false</span>
+        <span>b10 EnableOut</span><span>false</span>
+        <span>b11 WaitDone</span><span>false</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== RESPUESTA JSON ====== -->
+<section>
+  <strong>Respuesta</strong>
+  <pre class="status" id="log">{
+  "result": "ok",
+  "cmd": "kinco_status",
+  "motor": {
+    "ok": true,
+    "pos": 0,
+    "maxf": 2000,
+    "minf": 300,
+    "time": 300,
+    "status": 0,
+    "cycle_active": 0,
+    "cycle_done": 0,
+    ...
+  }
+}</pre>
+  <div class="muted">UI pabs_basico_5000 v1</div>
+</section>
+
+</main>
+</body>
+</html>

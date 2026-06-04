@@ -77,7 +77,7 @@ AND    %M0.6
 ST   %M0.5
 (* Network 11 *)
 LD    %M0.5
-MOVE    %VD124, ActivePabsTarget
+MOVE    ReturnTarget, ActivePabsTarget
 R    %M1.2
 S    %M1.3
 R    %M2.0
