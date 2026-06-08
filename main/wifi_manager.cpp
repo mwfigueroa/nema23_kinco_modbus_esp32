@@ -1,5 +1,5 @@
 /**
- * wifi_manager.cpp — Implementación WiFi AP+STA + HTTP Server
+ * wifi_manager.cpp â€” ImplementaciÃ³n WiFi AP+STA + HTTP Server
  */
 
 #include "wifi_manager.h"
@@ -38,6 +38,7 @@ static esp_netif_t *s_sta_netif = nullptr;
 #define KINCO_REL_TEST_STEPS    7000
 #define KINCO_PROGRAM_NAME      "Kinco_esp_Modbus_test_2/MAIN_MAIN.ilp"
 #define KINCO_CYCLE_BUSY_MASK   0x100F
+#define KINCO_AXIS_COUNT        2
 
 #define KINCO_CMD_ENABLE        0x0001
 #define KINCO_CMD_RESET_POS     0x0003
@@ -123,18 +124,18 @@ typedef struct {
     int32_t position;
 } kinco_axis_status_t;
 
-static const kinco_axis_map_t s_kinco_axis[1] = {
+static const kinco_axis_map_t s_kinco_axis[KINCO_AXIS_COUNT] = {
     /*
      * Mapa del programa PLC Kinco_esp_Modbus_test_2 / MAIN_MAIN.ilp:
      *
-     * Trigger: escribir un valor ≠ 0 en 40151-40152 (%VD100 = Cmd_TargetSteps)
-     * arranca automaticamente el ciclo completo (ida → espera 3 s → vuelta a 0).
+     * Trigger: escribir un valor â‰  0 en 40151-40152 (%VD100 = Cmd_TargetSteps)
+     * arranca automaticamente el ciclo completo (ida â†’ espera 3 s â†’ vuelta a 0).
      * No tiene palabra de control en 40070; PSTOP se usa internamente para JOG.
      *
      * Parametros PABS:   MAXF=40153-40154 (%VD104), MINF=40155 (%VW108),
      *                    TIME=40156 (%VW110).
      * Estado:            40252 (%VW302) bits de ciclo.
-     * Error PABS:        40253 (%VB304) — byte bajo.
+     * Error PABS:        40253 (%VB304) â€” byte bajo.
      * Posicion actual:   40201-40202 (%VD200).
      *
      * HOME usa 40157-40163 y estado adicional 40255-40256.
@@ -145,6 +146,17 @@ static const kinco_axis_map_t s_kinco_axis[1] = {
      */
     {0, 150, 152, 154, 155, 156, 157, 158, 159, 160, 162,
      166, 168, 170, 171, 174, 175, 176, 251, 252, 200, 254, 255, 256, 257},
+    /*
+     * Motor 2 / AXIS=1:
+     * PABS: 40301-40306 (%VD400..%VW410)
+     * HOME: 40307-40313 (%VW412..%VW424), sensor PLC I0.3
+     * PREL: 40317-40322 (%VD432..%VW442)
+     * JOG:  40325-40328 (%VW448..%VD452), entradas PLC I0.4/I0.5
+     * Posicion: 40351-40352 (%VD500, copia de %SMD242)
+     * Estado: 40402-40408 (%VW602..%VW614)
+     */
+    {0, 300, 302, 304, 305, 306, 307, 308, 309, 310, 312,
+     316, 318, 320, 321, 324, 325, 326, 401, 402, 350, 404, 405, 406, 407},
 };
 
 static uint16_t modbus_crc16_local(const uint8_t *buf, size_t len)
@@ -380,9 +392,19 @@ static int32_t kinco_words_to_int32(uint16_t lo, uint16_t hi)
     return (int32_t)raw;
 }
 
+static unsigned kinco_modbus_reg(uint16_t zero_based_reg)
+{
+    return 40001u + (unsigned)zero_based_reg;
+}
+
+static unsigned kinco_optional_modbus_reg(uint16_t zero_based_reg)
+{
+    return zero_based_reg ? kinco_modbus_reg(zero_based_reg) : 0;
+}
+
 static bool kinco_valid_axis(int axis)
 {
-    return axis == 0;
+    return axis >= 0 && axis < KINCO_AXIS_COUNT;
 }
 
 static uint16_t clamp_u16(long value, uint16_t def, uint16_t min_v, uint16_t max_v)
@@ -606,7 +628,7 @@ static esp_err_t kinco_axis_read_status(int axis, kinco_axis_status_t *status)
         status->control_word = 0;
     }
 
-    /* Leer posición objetivo PABS desde 40151-40152 (%VD100). */
+    /* Leer posiciÃ³n objetivo PABS desde 40151-40152 (%VD100). */
     uint16_t cfg_regs[6] = {};
     ret = plc_read_holding_registers(m->pabs_pos, 6, cfg_regs, &exception_code);
     if (ret != ESP_OK) {
@@ -803,8 +825,8 @@ static esp_err_t kinco_axis_read_fast_status(int axis, kinco_axis_status_t *stat
  * ================================================================ */
 
 /* ----------------------------------------------------------------
- * Parser JSON mínimo (sin dependencias). Reconoce {"cmd":"...","arg":N}
- * con arg numérico o entre comillas. Suficiente para el panel de control;
+ * Parser JSON mÃ­nimo (sin dependencias). Reconoce {"cmd":"...","arg":N}
+ * con arg numÃ©rico o entre comillas. Suficiente para el panel de control;
  * para cargas arbitrarias conviene migrar a cJSON.
  * ---------------------------------------------------------------- */
 
@@ -839,12 +861,26 @@ static bool json_find_int(const char *json, const char *key, long *out)
     return true;
 }
 
+static int axis_from_http_req(httpd_req_t *req)
+{
+    char query[64] = {};
+    char value[8] = {};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "axis", value, sizeof(value)) == ESP_OK) {
+        int axis = atoi(value);
+        if (kinco_valid_axis(axis)) return axis;
+    }
+    return 0;
+}
+
 static void update_led_from_status(const kinco_axis_status_t *st);
 
-static void kinco_status_response(char *resp, size_t resp_sz, const char *cmd)
+static void kinco_status_response(int axis, char *resp, size_t resp_sz, const char *cmd)
 {
+    if (!kinco_valid_axis(axis)) axis = 0;
+    const kinco_axis_map_t *m = &s_kinco_axis[axis];
     kinco_axis_status_t st = {};
-    esp_err_t ret = kinco_axis_read_status(0, &st);
+    esp_err_t ret = kinco_axis_read_status(axis, &st);
     update_led_from_status(&st);
     bool ok = (ret == ESP_OK);
     bool cycle_active = (st.status_word >> 0) & 1;
@@ -886,17 +922,17 @@ static void kinco_status_response(char *resp, size_t resp_sz, const char *cmd)
 
     snprintf(resp, resp_sz,
              "{\"result\":\"%s\",\"cmd\":\"%s\",\"target\":\"kinco\",\"slave\":%u,"
-             "\"program\":\"" KINCO_PROGRAM_NAME "\","
-             "\"control_reg\":0,\"command_reg\":40151,\"maxf_reg\":40153,\"minf_reg\":40155,"
-             "\"time_reg\":40156,\"home_cmd_reg\":40157,\"home_mode_reg\":40158,"
-             "\"home_dir_reg\":40159,\"home_minf_reg\":40160,\"home_maxf_reg\":40161,"
-             "\"home_time_reg\":40163,\"rel_reg\":40167,\"prel_maxf_reg\":40169,"
-             "\"prel_minf_reg\":40171,\"prel_time_reg\":40172,"
-             "\"jog_cmd_reg\":40175,\"jog_dir_reg\":40176,\"jog_speed_reg\":40177,"
-             "\"status_reg\":40252,\"home_status_reg\":40255,\"jog_status_reg\":40257,"
-             "\"position_reg\":40201,"
-             "\"error_out_reg\":40253,\"error_return_reg\":40254,"
-             "\"error_home_reg\":40256,\"error_jog_reg\":40258,"
+             "\"axis\":%d,\"program\":\"" KINCO_PROGRAM_NAME "\","
+             "\"control_reg\":%u,\"command_reg\":%u,\"maxf_reg\":%u,\"minf_reg\":%u,"
+             "\"time_reg\":%u,\"home_cmd_reg\":%u,\"home_mode_reg\":%u,"
+             "\"home_dir_reg\":%u,\"home_minf_reg\":%u,\"home_maxf_reg\":%u,"
+             "\"home_time_reg\":%u,\"rel_reg\":%u,\"prel_maxf_reg\":%u,"
+             "\"prel_minf_reg\":%u,\"prel_time_reg\":%u,"
+             "\"jog_cmd_reg\":%u,\"jog_dir_reg\":%u,\"jog_speed_reg\":%u,"
+             "\"status_reg\":%u,\"home_status_reg\":%u,\"jog_status_reg\":%u,"
+             "\"position_reg\":%u,"
+             "\"error_out_reg\":%u,\"error_return_reg\":%u,"
+             "\"error_home_reg\":%u,\"error_jog_reg\":%u,"
              "\"motor\":{\"ok\":%s,\"err\":\"%s\",\"exception\":%u,"
              "\"command_steps\":%ld,\"pos\":%ld,\"maxf\":%lu,\"minf\":%u,"
              "\"time\":%u,\"rel_steps\":%ld,\"prel_maxf\":%lu,"
@@ -923,7 +959,21 @@ static void kinco_status_response(char *resp, size_t resp_sz, const char *cmd)
              "\"jog_cmd_active\":%u,\"jog_stop_err\":%u,"
              "\"error_jog_stop\":%u,"
              "\"plc_alive\":%u}}",
-             ok ? "ok" : "error", cmd, KINCO_SLAVE_ID,
+             ok ? "ok" : "error", cmd, KINCO_SLAVE_ID, axis,
+             kinco_optional_modbus_reg(m->control),
+             kinco_modbus_reg(m->pabs_pos), kinco_modbus_reg(m->pabs_maxf),
+             kinco_modbus_reg(m->pabs_minf), kinco_modbus_reg(m->pabs_time),
+             kinco_modbus_reg(m->home_cmd), kinco_modbus_reg(m->home_mode),
+             kinco_modbus_reg(m->home_dir), kinco_modbus_reg(m->home_minf),
+             kinco_modbus_reg(m->home_maxf), kinco_modbus_reg(m->home_time),
+             kinco_modbus_reg(m->prel_dist), kinco_modbus_reg(m->prel_maxf),
+             kinco_modbus_reg(m->prel_minf), kinco_modbus_reg(m->prel_time),
+             kinco_modbus_reg(m->jog_cmd), kinco_modbus_reg(m->jog_dir),
+             kinco_modbus_reg(m->jog_speed), kinco_modbus_reg(m->status),
+             kinco_modbus_reg(m->home_status), kinco_modbus_reg(m->jog_status),
+             kinco_modbus_reg(m->position), kinco_modbus_reg(m->status2),
+             kinco_modbus_reg(m->status2 + 1), kinco_modbus_reg(m->home_error),
+             kinco_modbus_reg(m->jog_error),
              st.ok ? "true" : "false", esp_err_to_name(ret), st.exception,
              (long)st.command_steps, (long)st.position,
              (unsigned long)st.maxf, st.minf, st.time_ms,
@@ -948,11 +998,13 @@ static void kinco_status_response(char *resp, size_t resp_sz, const char *cmd)
              plc_alive);
 }
 
-/* ── Helper: actualiza LED según estado del motor ──────────────── */
-static void kinco_fast_status_response(char *resp, size_t resp_sz, const char *cmd)
+/* â”€â”€ Helper: actualiza LED segÃºn estado del motor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+static void kinco_fast_status_response(int axis, char *resp, size_t resp_sz, const char *cmd)
 {
+    if (!kinco_valid_axis(axis)) axis = 0;
+    const kinco_axis_map_t *m = &s_kinco_axis[axis];
     kinco_axis_status_t st = {};
-    esp_err_t ret = kinco_axis_read_fast_status(0, &st);
+    esp_err_t ret = kinco_axis_read_fast_status(axis, &st);
     update_led_from_status(&st);
     bool ok = (ret == ESP_OK);
     bool cycle_active = (st.status_word >> 0) & 1;
@@ -994,9 +1046,9 @@ static void kinco_fast_status_response(char *resp, size_t resp_sz, const char *c
 
     snprintf(resp, resp_sz,
              "{\"result\":\"%s\",\"cmd\":\"%s\",\"target\":\"kinco\",\"slave\":%u,"
-             "\"program\":\"" KINCO_PROGRAM_NAME "\",\"fast\":true,"
-             "\"status_reg\":40252,\"home_status_reg\":40255,"
-             "\"jog_status_reg\":40257,\"position_reg\":40201,"
+             "\"axis\":%d,\"program\":\"" KINCO_PROGRAM_NAME "\",\"fast\":true,"
+             "\"status_reg\":%u,\"home_status_reg\":%u,"
+             "\"jog_status_reg\":%u,\"position_reg\":%u,"
              "\"motor\":{\"ok\":%s,\"err\":\"%s\",\"exception\":%u,"
              "\"pos\":%ld,\"status\":%u,\"status2\":%u,\"status3\":%u,"
              "\"home_status\":%u,\"home_error_word\":%u,"
@@ -1016,7 +1068,9 @@ static void kinco_fast_status_response(char *resp, size_t resp_sz, const char *c
              "\"jog_dir_bit\":%u,\"jog_fwd_input\":%u,\"jog_bwd_input\":%u,"
              "\"jog_cmd_active\":%u,\"jog_stop_err\":%u,"
              "\"plc_alive\":%u}}",
-             ok ? "ok" : "error", cmd, KINCO_SLAVE_ID,
+             ok ? "ok" : "error", cmd, KINCO_SLAVE_ID, axis,
+             kinco_modbus_reg(m->status), kinco_modbus_reg(m->home_status),
+             kinco_modbus_reg(m->jog_status), kinco_modbus_reg(m->position),
              st.ok ? "true" : "false", esp_err_to_name(ret), st.exception,
              (long)st.position, st.status_word, st.status_word2, st.status_word3,
              st.home_status_word, st.home_error_word,
@@ -1080,14 +1134,14 @@ static void update_led_from_status(const kinco_axis_status_t *st)
 }
 
 /* ================================================================
- * Ciclo automático 0→N→0 — ejecutado en tarea dedicada
+ * Ciclo automÃ¡tico 0â†’Nâ†’0 â€” ejecutado en tarea dedicada
  *
- * Antes corría dentro del handler HTTP y bloqueaba la única tarea del
+ * Antes corrÃ­a dentro del handler HTTP y bloqueaba la Ãºnica tarea del
  * servidor hasta ~120 s, dejando sin respuesta al resto de peticiones
  * (incluido el polling de estado de la UI). Ahora el endpoint solo lanza
  * la tarea y devuelve de inmediato; la UI consulta el progreso con
- * "kinco_cycle_status". El acceso RS485 ya está serializado por el mutex
- * del puente, así que las lecturas de estado concurrentes son seguras.
+ * "kinco_cycle_status". El acceso RS485 ya estÃ¡ serializado por el mutex
+ * del puente, asÃ­ que las lecturas de estado concurrentes son seguras.
  * ================================================================ */
 
 enum {
@@ -1109,8 +1163,9 @@ static const char *cycle_phase_str(int phase)
 
 typedef struct {
     bool      active;        /* tarea en curso */
-    bool      done;          /* terminó (éxito o error) */
+    bool      done;          /* terminÃ³ (Ã©xito o error) */
     int       phase;         /* CYCLE_PHASE_* */
+    int       axis;
     bool      cw_ok;
     bool      ccw_ok;
     int32_t   cw_target;
@@ -1134,7 +1189,7 @@ static portMUX_TYPE s_auto_cycle_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_auto_cycle_task = nullptr;
 
 /* Espera CycleDone (bit4) o CycleErr (bit5) con timeout.
- * En MAIN_MAIN.ilp la PLC hace el ciclo completo (ida → 3s → vuelta a 0). */
+ * En MAIN_MAIN.ilp la PLC hace el ciclo completo (ida â†’ 3s â†’ vuelta a 0). */
 static esp_err_t auto_cycle_wait_done(int axis, int timeout_ms,
                                       int32_t *final_pos, uint8_t *exception)
 {
@@ -1175,8 +1230,8 @@ static void auto_cycle_task(void *arg)
 
     status_led_set_state(STATUS_LED_STATE_MOTOR_MOVING);
 
-    /* En MAIN_MAIN.ilp, escribir un target ≠ 0 en 40151-40152 dispara
-     * el ciclo completo: ida al target → espera 3 s → vuelta a 0.
+    /* En MAIN_MAIN.ilp, escribir un target â‰  0 en 40151-40152 dispara
+     * el ciclo completo: ida al target â†’ espera 3 s â†’ vuelta a 0.
      * Solo necesitamos una llamada a kinco_axis_pabs. */
     esp_err_t r = kinco_axis_pabs(p.axis, p.cw_target, p.fwd_speed,
                                   KINCO_DEFAULT_PABS_MINF,
@@ -1240,7 +1295,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                                  KINCO_DEFAULT_PABS_TIME, 1, 65535);
 
     if (strcmp(cmd, "kinco_status") == 0) {
-        kinco_status_response(resp, resp_sz, cmd);
+        kinco_status_response(axis, resp, resp_sz, cmd);
         return;
     }
 
@@ -1258,13 +1313,13 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
         return;
     }
 
-    /* ── Comandos de control para MAIN_MAIN.ilp (test_2) ── */
+    /* â”€â”€ Comandos de control para MAIN_MAIN.ilp (test_2) â”€â”€ */
     /* Este programa PLC no usa palabra de control 40070. PSTOP queda interno
      * para detener JOG al soltar entradas o al mandar kinco_jog_stop.
-     * Se dispara escribiendo un valor ≠ 0 en 40151-40152 (Cmd_TargetSteps).
+     * Se dispara escribiendo un valor â‰  0 en 40151-40152 (Cmd_TargetSteps).
      * Comandos soportados: kinco_pabs, kinco_move_delta, kinco_status,
      * kinco_cycle_status.  kinco_auto_cycle delega en kinco_pabs porque
-     * el PLC ya hace el ciclo completo (ida → 3s → vuelta a 0). */
+     * el PLC ya hace el ciclo completo (ida â†’ 3s â†’ vuelta a 0). */
     esp_err_t r = ESP_OK;
     uint8_t exception_code = 0;
     int32_t target_pos = 0;
@@ -1335,7 +1390,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                      cmd, axis, KINCO_SLAVE_ID, exception_code, esp_err_to_name(r));
             return;
         }
-        kinco_fast_status_response(resp, resp_sz, cmd);
+        kinco_fast_status_response(axis, resp, resp_sz, cmd);
         return;
     }
 
@@ -1471,7 +1526,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                                 home_time_ms, &exception_code);
         }
     } else if (strcmp(cmd, "kinco_cycle_status") == 0) {
-        /* Snapshot del ciclo automático + lectura de estado para el contador
+        /* Snapshot del ciclo automÃ¡tico + lectura de estado para el contador
          * en vivo. La UI hace polling de este comando mientras el ciclo corre. */
         auto_cycle_state_t snap;
         portENTER_CRITICAL(&s_auto_cycle_mux);
@@ -1479,11 +1534,11 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
         portEXIT_CRITICAL(&s_auto_cycle_mux);
 
         kinco_axis_status_t st = {};
-        esp_err_t sr = kinco_axis_read_fast_status(0, &st);
+        esp_err_t sr = kinco_axis_read_fast_status(axis, &st);
         update_led_from_status(&st);
 
         snprintf(resp, resp_sz,
-                 "{\"result\":\"%s\",\"cmd\":\"%s\",\"pos\":%ld,"
+                 "{\"result\":\"%s\",\"cmd\":\"%s\",\"axis\":%d,\"pos\":%ld,"
                  "\"motor\":{\"ok\":%s,\"err\":\"%s\",\"pos\":%ld,\"control\":%u,"
                  "\"status\":%u,\"status2\":%u,\"status3\":%u,"
                  "\"cycle_active\":%u,\"move_out_active\":%u,\"wait_return_active\":%u,"
@@ -1494,10 +1549,10 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                  "\"prel_active\":%u,\"prel_done\":%u,\"prel_err\":%u,"
                  "\"plc_alive\":%u},"
                  "\"cycle\":{\"active\":%s,\"done\":%s,\"phase\":\"%s\","
-                 "\"cw_ok\":%s,\"ccw_ok\":%s,\"result\":\"%s\",\"exception\":%u,"
+                 "\"axis\":%d,\"cw_ok\":%s,\"ccw_ok\":%s,\"result\":\"%s\",\"exception\":%u,"
                  "\"cw_target\":%ld,\"fwd_speed\":%lu,\"ret_speed\":%lu,"
                  "\"pos_after_cw\":%ld,\"pos_final\":%ld}}",
-                 sr == ESP_OK ? "ok" : "error", cmd, (long)st.position,
+                 sr == ESP_OK ? "ok" : "error", cmd, axis, (long)st.position,
                  st.ok ? "true" : "false", esp_err_to_name(sr), (long)st.position,
                  st.control_word,
                  st.status_word, st.status_word2, st.status_word3,
@@ -1511,7 +1566,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                  (st.status_word >> 14) & 1,
                  (st.status_word >> 15) & 1,
                  snap.active ? "true" : "false", snap.done ? "true" : "false",
-                 cycle_phase_str(snap.phase),
+                 cycle_phase_str(snap.phase), snap.active ? snap.axis : axis,
                  snap.cw_ok ? "true" : "false", snap.ccw_ok ? "true" : "false",
                  esp_err_to_name(snap.result), snap.exception,
                  (long)snap.cw_target, (unsigned long)snap.fwd_speed,
@@ -1552,7 +1607,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
             return;
         }
 
-        /* Reservar el ciclo de forma atómica: si ya hay uno activo, rechazar. */
+        /* Reservar el ciclo de forma atÃ³mica: si ya hay uno activo, rechazar. */
         bool busy;
         portENTER_CRITICAL(&s_auto_cycle_mux);
         busy = s_auto_cycle.active;
@@ -1560,6 +1615,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
             s_auto_cycle = auto_cycle_state_t{};
             s_auto_cycle.active = true;
             s_auto_cycle.phase = CYCLE_PHASE_CW;
+            s_auto_cycle.axis = axis;
             s_auto_cycle.cw_target = cw_target;
             s_auto_cycle.fwd_speed = fwd_speed;
             s_auto_cycle.ret_speed = ret_speed;
@@ -1670,7 +1726,7 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
 static esp_err_t http_get_status_handler(httpd_req_t *req)
 {
     char resp[4096];
-    kinco_status_response(resp, sizeof(resp), "kinco_status");
+    kinco_status_response(axis_from_http_req(req), resp, sizeof(resp), "kinco_status");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
@@ -1680,7 +1736,7 @@ static esp_err_t http_get_status_handler(httpd_req_t *req)
 static esp_err_t http_get_fast_status_handler(httpd_req_t *req)
 {
     char resp[2048];
-    kinco_fast_status_response(resp, sizeof(resp), "kinco_fast_status");
+    kinco_fast_status_response(axis_from_http_req(req), resp, sizeof(resp), "kinco_fast_status");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
@@ -1723,26 +1779,26 @@ static esp_err_t __attribute__((unused)) http_get_root_handler(httpd_req_t *req)
         ".row{display:flex;gap:8px;flex-wrap:wrap}"
         "input{background:#0f3460;color:white;border:1px solid #e94560;padding:8px 12px;border-radius:6px;width:100px}"
         "</style></head><body>"
-        "<h1>⚙️ NEMA23 Gateway</h1>"
+        "<h1>âš™ï¸ NEMA23 Gateway</h1>"
         "<div class='status'><strong>Estado:</strong> <span id='status'>Online</span><br>"
-        "<strong>Posición:</strong> <span id='pos'>0</span> steps</div>"
+        "<strong>PosiciÃ³n:</strong> <span id='pos'>0</span> steps</div>"
         "<div class='plc'><strong>PLC:</strong> <span id='plc_status'>Sin lectura</span></div>"
         "<div class='row'>"
-        "<button onclick='send(\"move_rel\",1000)'>▶ +1000</button>"
-        "<button onclick='send(\"move_rel\",-1000)'>◀ -1000</button>"
+        "<button onclick='send(\"move_rel\",1000)'>â–¶ +1000</button>"
+        "<button onclick='send(\"move_rel\",-1000)'>â—€ -1000</button>"
         "</div>"
         "<div class='row'>"
-        "<button onclick='send(\"home\")'>🏠 Home</button>"
-        "<button onclick='send(\"stop\")'>⏹ Stop</button>"
-        "<button onclick='send(\"estop\")'>🛑 E-Stop</button>"
+        "<button onclick='send(\"home\")'>ðŸ  Home</button>"
+        "<button onclick='send(\"stop\")'>â¹ Stop</button>"
+        "<button onclick='send(\"estop\")'>ðŸ›‘ E-Stop</button>"
         "</div>"
         "<div class='row' style='margin-top:8px'>"
         "<input id='speed' value='5000' placeholder='steps/s'>"
-        "<button onclick='send(\"run_speed\",document.getElementById(\"speed\").value)'>⚡ Run</button>"
+        "<button onclick='send(\"run_speed\",document.getElementById(\"speed\").value)'>âš¡ Run</button>"
         "</div>"
         "<div class='row' style='margin-top:8px'>"
-        "<button onclick='send(\"rs485_mode\")'>🔀 RS485</button>"
-        "<button onclick='send(\"can_mode\")'>🔀 CAN</button>"
+        "<button onclick='send(\"rs485_mode\")'>ðŸ”€ RS485</button>"
+        "<button onclick='send(\"can_mode\")'>ðŸ”€ CAN</button>"
         "</div>"
         "<div class='row' style='margin-top:8px'>"
         "<button onclick='send(\"plc_send_step\")'>PLC Steps -> VW0/VW2</button>"
@@ -1773,7 +1829,7 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
     const char *html =
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Kinco MAIN_MAIN PABS PREL HOME JOG</title>"
+        "<title>Kinco 2 motores PABS PREL HOME JOG</title>"
         "<style>"
         ":root{color-scheme:dark}*{box-sizing:border-box}"
         "body{font-family:Arial,sans-serif;margin:0;background:#171717;color:#e7e5e4}"
@@ -1790,16 +1846,16 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         ".kv{display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:13px}"
         ".kv span:nth-child(odd){color:#a8a29e}.mono{font-family:Consolas,monospace}"
         "label{color:#a8a29e;font-size:13px;display:flex;align-items:center;gap:5px}"
-        "input{background:#171717;color:#e7e5e4;border:1px solid #57534e;border-radius:6px;padding:8px 9px;width:92px;font-size:14px;text-align:center}"
+        "input,select{background:#171717;color:#e7e5e4;border:1px solid #57534e;border-radius:6px;padding:8px 9px;width:92px;font-size:14px;text-align:center}select{width:116px;text-align:left}"
         ".counter{background:#171717;border:2px solid #3f3f46;border-radius:8px;padding:14px;text-align:center}"
         ".counter .big{font:700 52px/1 Consolas,monospace;color:#2dd4bf}"
         ".counter .label{font-size:11px;color:#78716c;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}"
         ".status{font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto;max-height:210px;background:#171717;border-radius:6px;padding:8px}"
         ".muted{color:#a8a29e;font-size:12px}"
         "</style></head><body><main>"
-        "<h1>Kinco MAIN_MAIN PABS/PREL/HOME/JOG</h1>"
-        "<p class='sub'>Ciclo PLC: 40151 dispara PABS ida-vuelta; 40157 dispara PHOME; 40167 dispara PREL relativo; 40175 dispara JOG. El driver energiza con Q0.3=0.</p>"
-        "<div class='counter'><div class='label'>Posicion actual 40201</div><div class='big' id='pos'>0</div>"
+        "<h1>Kinco 2 motores PABS/PREL/HOME/JOG</h1>"
+        "<p class='sub'>Motor 1: STEP Q0.0 DIR Q0.2 EN Q0.4. Motor 2: STEP Q0.1 DIR Q0.3 EN Q0.5. Enable activo bajo.</p><section><div class='row'><label>Motor<select id='axis' onchange='onAxisChange()'><option value='0'>Motor 1</option><option value='1'>Motor 2</option></select></label><span class='muted' id='axisMap'>M1 PABS 40151, POS 40201, STATUS 40252</span></div></section>"
+        "<div class='counter'><div class='label' id='posLabel'>Posicion actual 40201</div><div class='big' id='pos'>0</div>"
         "<div class='muted' id='phase'>Sin lectura</div></div>"
         "<section><div class='row'>"
         "<button class='move' onclick='startSteps(5000)'>+5000 y volver</button>"
@@ -1815,12 +1871,12 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "<section><div class='row'>"
         "<button class='move' onclick='startHome(0)'>HOME forward</button>"
         "<button class='move secondary' onclick='startHome(1)'>HOME backward</button>"
-        "</div><p class='muted'>PHOME usa sensor en I0.0, comando 40157 y parametros 40158-40163.</p></section>"
+        "</div><p class='muted'>PHOME usa I0.0 en motor 1 e I0.3 en motor 2. Los registros se actualizan segun el selector.</p></section>"
         "<section><div class='row'>"
         "<button class='move' onmousedown='jogStart(1)' onmouseup='jogStop()' onmouseleave='jogStop()' ontouchstart='jogTouch(event,1)' ontouchend='jogTouch(event,0)' ontouchcancel='jogTouch(event,0)'>JOG forward</button>"
         "<button class='move secondary' onmousedown='jogStart(-1)' onmouseup='jogStop()' onmouseleave='jogStop()' ontouchstart='jogTouch(event,-1)' ontouchend='jogTouch(event,0)' ontouchcancel='jogTouch(event,0)'>JOG backward</button>"
         "<button class='danger' onclick='jogStop(true)'>STOP JOG</button>"
-        "</div><p class='muted'>JOG fisico: I0.1 forward, I0.2 backward. JOG web usa velocidad Max Hz y registros 40175-40178.</p></section>"
+        "</div><p class='muted'>JOG fisico: motor 1 I0.1/I0.2; motor 2 I0.4/I0.5. JOG web usa velocidad Max Hz.</p></section>"
         "<section><div class='row'>"
         "<label>Pasos<input id='steps' type='number' value='5000' min='1' max='999999' step='1000'></label>"
         "<label>Max Hz<input id='maxf' type='number' value='2000' min='125' max='200000' step='100'></label>"
@@ -1830,59 +1886,59 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "<button onclick='startCustom(-1)'>Enviar -pasos</button>"
         "<button onclick='startRelCustom(1)'>PREL +pasos</button>"
         "<button onclick='startRelCustom(-1)'>PREL -pasos</button>"
-        "</div><p class='muted'>PABS: 40151-40156. HOME: 40157-40163. PREL: 40167-40172. JOG: 40175-40178.</p></section>"
+        "</div><p class='muted'>Motor 1 usa 40151/40157/40167/40175. Motor 2 usa 40301/40307/40317/40325.</p></section>"
         "<section><div class='grid'>"
         "<div><strong>Registros</strong><div class='kv' id='regs'>Sin lectura</div></div>"
-        "<div><strong>Bits 40252</strong><div class='kv' id='bits'>Sin lectura</div></div>"
+        "<div><strong id='bitsTitle'>Bits 40252</strong><div class='kv' id='bits'>Sin lectura</div></div>"
         "</div></section>"
-        "<section><strong>Respuesta</strong><pre class='status' id='log'>Listo</pre><div class='muted'>UI MAIN_MAIN test_2 v2</div></section>"
+        "<section><strong>Respuesta</strong><pre class='status' id='log'>Listo</pre><div class='muted'>UI MAIN_MAIN test_2 v3 dos motores</div></section>"
         "</main><script>"
-        "let running=false,pollId=null,pollTicks=0,targetAbs=0,statusBusy=false,fastBusy=false,cmdBusy=false,jogHeld=false;"
-        "function q(id){return document.getElementById(id)}"
+        "let running=false,pollId=null,pollTicks=0,targetAbs=0,statusBusy=false,fastBusy=false,cmdBusy=false,jogHeld=false,axis=0,meta={};"
+        "function q(id){return document.getElementById(id)}function selectedAxis(){let e=q('axis');let v=e?parseInt(e.value):axis;return Number.isFinite(v)?v:0}function reg(k,d){return meta&&meta[k]?meta[k]:d}function axisDefaults(a){return a?{command_reg:40301,maxf_reg:40303,minf_reg:40305,time_reg:40306,home_cmd_reg:40307,home_dir_reg:40309,home_minf_reg:40310,home_maxf_reg:40311,home_time_reg:40313,rel_reg:40317,prel_maxf_reg:40319,prel_minf_reg:40321,prel_time_reg:40322,jog_cmd_reg:40325,jog_dir_reg:40326,jog_speed_reg:40327,position_reg:40351,status_reg:40402,error_out_reg:40403,error_return_reg:40404,home_status_reg:40405,error_home_reg:40406,jog_status_reg:40407,error_jog_reg:40408}:{command_reg:40151,maxf_reg:40153,minf_reg:40155,time_reg:40156,home_cmd_reg:40157,home_dir_reg:40159,home_minf_reg:40160,home_maxf_reg:40161,home_time_reg:40163,rel_reg:40167,prel_maxf_reg:40169,prel_minf_reg:40171,prel_time_reg:40172,jog_cmd_reg:40175,jog_dir_reg:40176,jog_speed_reg:40177,position_reg:40201,status_reg:40252,error_out_reg:40253,error_return_reg:40254,home_status_reg:40255,error_home_reg:40256,jog_status_reg:40257,error_jog_reg:40258}}function applyMeta(j){if(!j)return;axis=(j.axis!==undefined)?j.axis:selectedAxis();meta=Object.assign({},axisDefaults(axis),meta,j);let ax=q('axis');if(ax)ax.value=axis;let pos=meta.position_reg;q('posLabel').textContent='Motor '+(axis+1)+' posicion '+pos;let st=meta.status_reg;q('bitsTitle').textContent='Bits '+st;let m=q('axisMap');if(m)m.textContent=axis?'M2 PABS 40301, HOME 40307, PREL 40317, JOG 40325, POS 40351, STATUS 40402':'M1 PABS 40151, HOME 40157, PREL 40167, JOG 40175, POS 40201, STATUS 40252'}function onAxisChange(){axis=selectedAxis();running=false;jogHeld=false;if(pollId){clearInterval(pollId);pollId=null}applyMeta({axis:axis,position_reg:axis?40351:40201,status_reg:axis?40402:40252});getStatus(false)}"
         "function hx(v){return '0x'+(v||0).toString(16).padStart(4,'0')}"
         "function hxb(v){return '0x'+(v||0).toString(16).padStart(2,'0')}"
         "function cls(v){return v?'ok':'bad'}"
         "function num(id,def){let v=parseInt(q(id).value);return Number.isFinite(v)?v:def}"
         "function cfg(){return {speed:num('maxf',2000),minf:num('minf',300),time:num('time',300)}}"
-        "async function getStatus(show=true){if(statusBusy)return null;statusBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),5000);try{let r=await fetch('/api/status',{cache:'no-store',signal:ac.signal});let j=await r.json();if(show)q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paint(j.motor);return j}catch(e){let j={result:'error',cmd:'kinco_status',msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);statusBusy=false}}"
-        "async function getFastStatus(show=false){if(fastBusy)return null;fastBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),1800);try{let r=await fetch('/api/fast_status',{cache:'no-store',signal:ac.signal});let j=await r.json();if(show)q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paintFast(j.motor);return j}catch(e){if(show)q('log').textContent=JSON.stringify({result:'error',cmd:'kinco_fast_status',msg:e.name},null,2);return null}finally{clearTimeout(t);fastBusy=false}}"
-        "async function api(b,force=false){if(cmdBusy&&!force)return {result:'error',msg:'comando en curso'};if(!force)cmdBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),7000);try{let r=await fetch('/api/command',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Connection':'close'},body:JSON.stringify(b),signal:ac.signal});let j=await r.json();q('log').textContent=JSON.stringify(j,null,2);if(j.motor){if(j.fast)paintFast(j.motor);else paint(j.motor)}return j}catch(e){let j={result:'error',cmd:b.cmd,msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);if(!force)cmdBusy=false}}"
+        "async function getStatus(show=true){if(statusBusy)return null;statusBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),5000);try{let r=await fetch('/api/status?axis='+selectedAxis(),{cache:'no-store',signal:ac.signal});let j=await r.json();applyMeta(j);if(show)q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paint(j.motor);return j}catch(e){let j={result:'error',cmd:'kinco_status',msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);statusBusy=false}}"
+        "async function getFastStatus(show=false){if(fastBusy)return null;fastBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),1800);try{let r=await fetch('/api/fast_status?axis='+selectedAxis(),{cache:'no-store',signal:ac.signal});let j=await r.json();applyMeta(j);if(show)q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paintFast(j.motor);return j}catch(e){if(show)q('log').textContent=JSON.stringify({result:'error',cmd:'kinco_fast_status',msg:e.name},null,2);return null}finally{clearTimeout(t);fastBusy=false}}"
+        "async function api(b,force=false){if(cmdBusy&&!force)return {result:'error',msg:'comando en curso'};if(!force)cmdBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),7000);try{b.axis=selectedAxis();let r=await fetch('/api/command',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Connection':'close'},body:JSON.stringify(b),signal:ac.signal});let j=await r.json();applyMeta(j);q('log').textContent=JSON.stringify(j,null,2);if(j.motor){if(j.fast)paintFast(j.motor);else paint(j.motor)}return j}catch(e){let j={result:'error',cmd:b.cmd,msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);if(!force)cmdBusy=false}}"
         "function active(m){return !!(m&&(m.cycle_active||m.move_out_active||m.wait_return_active||m.return_active||m.prel_active||m.home_active||m.jog_active))}"
         "function failed(m){return !!(m&&(m.cycle_err||m.pabs_out_err||m.pabs_return_err||m.prel_err||m.home_err||m.jog_err||m.jog_stop_err))}"
         "function phase(m){if(!m)return 'Sin lectura';if(failed(m))return 'Error';if(m.jog_active)return 'JOG '+(m.jog_dir_bit?'backward':'forward');if(m.home_active)return 'Buscando HOME';if(m.prel_active)return 'Moviendo relativo';if(m.move_out_active)return 'Moviendo a destino';if(m.wait_return_active)return 'Esperando 3 s';if(m.return_active)return 'Volviendo a cero';if(m.cycle_active)return 'Ciclo activo';if(m.jog_done)return 'JOG terminado';if(m.home_done)return 'HOME terminado';if(m.prel_done)return 'Relativo terminado';if(m.cycle_done)return 'Terminado';return 'Idle'}"
         "function paintFast(m){q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m)}"
-        "function paint(m){let dbg=(m.debug_return!==undefined)?m.debug_return:((m.status3||0)>>8);let q03=(dbg>>7)&1;let pto=(dbg>>6)&1;let drv=dbg?q03?0:1:m.enable_out;"
+        "function paint(m){let dbg=(m.debug_return!==undefined)?m.debug_return:((m.status3||0)>>8);let en=(dbg>>7)&1;let pto=(dbg>>6)&1;let ax=selectedAxis();let drv=dbg?en?0:1:m.enable_out;"
         "q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m);"
         "q('regs').innerHTML='<span>Link</span><span class='+cls(m.ok)+'>'+(m.ok?'OK':'ERR '+m.err)+'</span>'"
-        "+'<span>Comando 40151</span><span class=mono>'+m.command_steps+'</span>'"
-        "+'<span>Max 40153</span><span class=mono>'+m.maxf+'</span>'"
-        "+'<span>Min 40155</span><span class=mono>'+m.minf+'</span>'"
-        "+'<span>Accel 40156</span><span class=mono>'+m.time+'</span>'"
-        "+'<span>HOME cmd 40157</span><span class=mono>'+m.home_cmd+'</span>'"
-        "+'<span>HOME dir 40159</span><span class=mono>'+m.home_dir+'</span>'"
-        "+'<span>HOME max 40161</span><span class=mono>'+m.home_maxf+'</span>'"
-        "+'<span>HOME min 40160</span><span class=mono>'+m.home_minf+'</span>'"
-        "+'<span>HOME accel 40163</span><span class=mono>'+m.home_time+'</span>'"
-        "+'<span>Rel 40167</span><span class=mono>'+m.rel_steps+'</span>'"
-        "+'<span>PREL max 40169</span><span class=mono>'+m.prel_maxf+'</span>'"
-        "+'<span>PREL min 40171</span><span class=mono>'+m.prel_minf+'</span>'"
-        "+'<span>PREL accel 40172</span><span class=mono>'+m.prel_time+'</span>'"
-        "+'<span>JOG cmd 40175</span><span class=mono>'+m.jog_cmd+'</span>'"
-        "+'<span>JOG dir 40176</span><span class=mono>'+m.jog_dir+'</span>'"
-        "+'<span>JOG speed 40177</span><span class=mono>'+m.jog_speed+'</span>'"
-        "+'<span>Estado 40252</span><span class=mono>'+hx(m.status)+'</span>'"
-        "+'<span>Error ida 40253</span><span class=mono>'+hxb(m.error_out)+'</span>'"
-        "+'<span>Error PREL 40254L</span><span class=mono>'+hxb(m.error_return)+'</span>'"
-        "+'<span>HOME estado 40255</span><span class=mono>'+hx(m.home_status)+'</span>'"
-        "+'<span>Error HOME 40256L</span><span class=mono>'+hxb(m.error_home)+'</span>'"
-        "+'<span>JOG estado 40257</span><span class=mono>'+hx(m.jog_status)+'</span>'"
-        "+'<span>Error JOG 40258L</span><span class=mono>'+hxb(m.error_jog)+'</span>'"
-        "+'<span>Error PSTOP JOG 40258H</span><span class=mono>'+hxb(m.error_jog_stop)+'</span>'"
-        "+'<span>Debug 40254H</span><span class=mono>'+hxb(dbg)+'</span>'"
+        "+'<span>Comando '+reg('command_reg',40151)+'</span><span class=mono>'+m.command_steps+'</span>'"
+        "+'<span>Max '+reg('maxf_reg',40153)+'</span><span class=mono>'+m.maxf+'</span>'"
+        "+'<span>Min '+reg('minf_reg',40155)+'</span><span class=mono>'+m.minf+'</span>'"
+        "+'<span>Accel '+reg('time_reg',40156)+'</span><span class=mono>'+m.time+'</span>'"
+        "+'<span>HOME cmd '+reg('home_cmd_reg',40157)+'</span><span class=mono>'+m.home_cmd+'</span>'"
+        "+'<span>HOME dir '+reg('home_dir_reg',40159)+'</span><span class=mono>'+m.home_dir+'</span>'"
+        "+'<span>HOME max '+reg('home_maxf_reg',40161)+'</span><span class=mono>'+m.home_maxf+'</span>'"
+        "+'<span>HOME min '+reg('home_minf_reg',40160)+'</span><span class=mono>'+m.home_minf+'</span>'"
+        "+'<span>HOME accel '+reg('home_time_reg',40163)+'</span><span class=mono>'+m.home_time+'</span>'"
+        "+'<span>Rel '+reg('rel_reg',40167)+'</span><span class=mono>'+m.rel_steps+'</span>'"
+        "+'<span>PREL max '+reg('prel_maxf_reg',40169)+'</span><span class=mono>'+m.prel_maxf+'</span>'"
+        "+'<span>PREL min '+reg('prel_minf_reg',40171)+'</span><span class=mono>'+m.prel_minf+'</span>'"
+        "+'<span>PREL accel '+reg('prel_time_reg',40172)+'</span><span class=mono>'+m.prel_time+'</span>'"
+        "+'<span>JOG cmd '+reg('jog_cmd_reg',40175)+'</span><span class=mono>'+m.jog_cmd+'</span>'"
+        "+'<span>JOG dir '+reg('jog_dir_reg',40176)+'</span><span class=mono>'+m.jog_dir+'</span>'"
+        "+'<span>JOG speed '+reg('jog_speed_reg',40177)+'</span><span class=mono>'+m.jog_speed+'</span>'"
+        "+'<span>Estado '+reg('status_reg',40252)+'</span><span class=mono>'+hx(m.status)+'</span>'"
+        "+'<span>Error ida '+reg('error_out_reg',40253)+'</span><span class=mono>'+hxb(m.error_out)+'</span>'"
+        "+'<span>Error PREL '+reg('error_return_reg',40254)+'L</span><span class=mono>'+hxb(m.error_return)+'</span>'"
+        "+'<span>HOME estado '+reg('home_status_reg',40255)+'</span><span class=mono>'+hx(m.home_status)+'</span>'"
+        "+'<span>Error HOME '+reg('error_home_reg',40256)+'L</span><span class=mono>'+hxb(m.error_home)+'</span>'"
+        "+'<span>JOG estado '+reg('jog_status_reg',40257)+'</span><span class=mono>'+hx(m.jog_status)+'</span>'"
+        "+'<span>Error JOG '+reg('error_jog_reg',40258)+'L</span><span class=mono>'+hxb(m.error_jog)+'</span>'"
+        "+'<span>Error PSTOP JOG '+reg('error_jog_reg',40258)+'H</span><span class=mono>'+hxb(m.error_jog_stop)+'</span>'"
+        "+'<span>Debug '+reg('error_return_reg',40254)+'H</span><span class=mono>'+hxb(dbg)+'</span>'"
         "+'<span>Enable logico</span><span class='+cls(m.enable_out)+'>'+m.enable_out+'</span>'"
-        "+'<span>Q0.3 fisico</span><span class=mono>'+q03+' '+(q03?'OFF':'ON')+'</span>'"
+        "+'<span>'+((ax)?'Q0.5':'Q0.4')+' fisico</span><span class=mono>'+en+' '+(en?'OFF':'ON')+'</span>'"
         "+'<span>Driver energizado</span><span class='+cls(drv)+'>'+drv+'</span>'"
-        "+'<span>PTO0 SM66.7</span><span class='+cls(pto)+'>'+pto+'</span>'"
+        "+'<span>'+((ax)?'PTO1 SM76.7':'PTO0 SM66.7')+'</span><span class='+cls(pto)+'>'+pto+'</span>'"
         "+'<span>PLC Alive</span><span class='+cls(m.plc_alive)+'>'+m.plc_alive+'</span>';"
         "q('bits').innerHTML='<span>b0 CycleActive</span><span>'+m.cycle_active+'</span>'"
         "+'<span>b1 MoveOut</span><span>'+m.move_out_active+'</span>'"
@@ -1900,19 +1956,19 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "+'<span>b13 PrelDone</span><span>'+m.prel_done+'</span>'"
         "+'<span>b14 PrelErr</span><span class='+cls(!m.prel_err)+'>'+m.prel_err+'</span>'"
         "+'<span>b15 PLC Alive</span><span class='+cls(m.plc_alive)+'>'+m.plc_alive+'</span>'"
-        "+'<span>40255.0 HomeActive</span><span>'+m.home_active+'</span>'"
-        "+'<span>40255.1 HomeDone</span><span>'+m.home_done+'</span>'"
-        "+'<span>40255.2 HomeErr</span><span class='+cls(!m.home_err)+'>'+m.home_err+'</span>'"
-        "+'<span>40255.3 HomeSensor</span><span class='+cls(m.home_sensor)+'>'+m.home_sensor+'</span>'"
-        "+'<span>40255.4 HomeDir</span><span>'+m.home_dir_bit+'</span>'"
-        "+'<span>40257.0 JogActive</span><span>'+m.jog_active+'</span>'"
-        "+'<span>40257.1 JogDone</span><span>'+m.jog_done+'</span>'"
-        "+'<span>40257.2 JogErr</span><span class='+cls(!m.jog_err)+'>'+m.jog_err+'</span>'"
-        "+'<span>40257.3 JogDir</span><span>'+m.jog_dir_bit+'</span>'"
-        "+'<span>40257.4 I0.1 Fwd</span><span class='+cls(m.jog_fwd_input)+'>'+m.jog_fwd_input+'</span>'"
-        "+'<span>40257.5 I0.2 Bwd</span><span class='+cls(m.jog_bwd_input)+'>'+m.jog_bwd_input+'</span>'"
-        "+'<span>40257.6 CmdWeb</span><span>'+m.jog_cmd_active+'</span>'"
-        "+'<span>40257.7 StopErr</span><span class='+cls(!m.jog_stop_err)+'>'+m.jog_stop_err+'</span>';}"
+        "+'<span>'+reg('home_status_reg',40255)+'.0 HomeActive</span><span>'+m.home_active+'</span>'"
+        "+'<span>'+reg('home_status_reg',40255)+'.1 HomeDone</span><span>'+m.home_done+'</span>'"
+        "+'<span>'+reg('home_status_reg',40255)+'.2 HomeErr</span><span class='+cls(!m.home_err)+'>'+m.home_err+'</span>'"
+        "+'<span>'+reg('home_status_reg',40255)+'.3 HomeSensor</span><span class='+cls(m.home_sensor)+'>'+m.home_sensor+'</span>'"
+        "+'<span>'+reg('home_status_reg',40255)+'.4 HomeDir</span><span>'+m.home_dir_bit+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.0 JogActive</span><span>'+m.jog_active+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.1 JogDone</span><span>'+m.jog_done+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.2 JogErr</span><span class='+cls(!m.jog_err)+'>'+m.jog_err+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.3 JogDir</span><span>'+m.jog_dir_bit+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.4 '+(selectedAxis()?'I0.4':'I0.1')+' Fwd</span><span class='+cls(m.jog_fwd_input)+'>'+m.jog_fwd_input+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.5 '+(selectedAxis()?'I0.5':'I0.2')+' Bwd</span><span class='+cls(m.jog_bwd_input)+'>'+m.jog_bwd_input+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.6 CmdWeb</span><span>'+m.jog_cmd_active+'</span>'"
+        "+'<span>'+reg('jog_status_reg',40257)+'.7 StopErr</span><span class='+cls(!m.jog_stop_err)+'>'+m.jog_stop_err+'</span>';}"
         "async function readStates(show){return show?await getStatus(true):await getFastStatus(false)}"
         "function startPoll(){if(pollId)clearInterval(pollId);pollTicks=0;pollId=setInterval(async()=>{pollTicks++;try{let j=await getFastStatus(false);if(!j)return;let m=j.motor;if(m&&(failed(m)||(!active(m)&&m.cycle_done&&pollTicks>2))){clearInterval(pollId);pollId=null;running=false;getStatus(false)}}catch(e){}},300)}"
         "async function startSteps(steps){if(running)return;let c=cfg();targetAbs=Math.abs(steps);running=true;q('phase').textContent='Enviando '+steps+' pasos';let j=await api({cmd:'kinco_pabs',axis:0,arg:steps,speed:c.speed,minf:c.minf,time:c.time});if(j.result!=='ok'){running=false;return}startPoll()}"
@@ -1970,7 +2026,7 @@ static esp_err_t __attribute__((unused)) http_get_kinco_root_handler_old(httpd_r
         "<p class='sub'>Prueba MODBUS directa a PLC: control 40070, estado 40152, posicion 40101.</p>"
         "<p class='sub'>LED ESP32: violeta=lectura MODBUS, ambar=escritura MODBUS, rojo=error MODBUS.</p>"
         "<div id='counterBox' class='counter-box'>"
-        "<div class='label'>Contador de pasos — Posicion actual</div>"
+        "<div class='label'>Contador de pasos â€” Posicion actual</div>"
         "<div class='big' id='counterValue'>0</div>"
         "<div id='counterTarget' class='target-line' style='display:none'>Objetivo: <strong id='counterTargetVal'>0</strong></div>"
         "<div class='progress-bar'><div id='counterProgress' class='progress-fill' style='width:0%'></div></div>"
@@ -1987,7 +2043,7 @@ static esp_err_t __attribute__((unused)) http_get_kinco_root_handler_old(httpd_r
         "</div><p class='muted'>Cada movimiento lee la posicion actual de la PLC y ordena un PABS relativo de 5000 pasos.</p></section>"
         "<section><div class='row' style='align-items:center'>"
         "<button id='autoCycleBtn' class='move' onclick='autoCycle()' style='background:#16a34a;font-size:18px'>"
-        "🔄 Auto Cycle 0→N→0</button>"
+        "ðŸ”„ Auto Cycle 0â†’Nâ†’0</button>"
         "<label style='color:#94a3b8;font-size:13px;display:flex;align-items:center;gap:4px'>"
         "Steps<input id='cycleSteps' type='number' value='15000' min='1' max='999999' step='1000'"
         "style='background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:8px 10px;width:90px;font-size:14px;text-align:center'></label>"
@@ -2043,21 +2099,21 @@ static esp_err_t __attribute__((unused)) http_get_kinco_root_handler_old(httpd_r
         "let fwdHz=parseInt(document.getElementById('cycleFwdHz').value)||5000;"
         "let ccwHz=parseInt(document.getElementById('cycleCcwHz').value)||2500;"
         "cycleTarget=steps;cycleRunning=true;updateCounter(0,steps);"
-        "btn.disabled=true;btn.textContent='⏳ Ciclo en curso...';btn.style.background='#16a34a';"
-        "log.textContent='🚀 Iniciando: 0 → '+steps+' CW @'+fwdHz+'Hz / CCW @'+ccwHz+'Hz ...';"
+        "btn.disabled=true;btn.textContent='â³ Ciclo en curso...';btn.style.background='#16a34a';"
+        "log.textContent='ðŸš€ Iniciando: 0 â†’ '+steps+' CW @'+fwdHz+'Hz / CCW @'+ccwHz+'Hz ...';"
         /* Lanzar el ciclo (responde de inmediato). Si falla, abortar. */
         "try{let b={cmd:'kinco_auto_cycle',axis:0,arg:steps,speed:fwdHz,minf:ccwHz,time:300,dir:dir};"
         "let r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});"
         "let j=await r.json();if(j.result!=='ok'){throw new Error(j.msg||j.err||'no se pudo iniciar')}}"
-        "catch(e){btn.style.background='#dc2626';log.textContent='❌ '+e.message;"
-        "btn.disabled=false;btn.textContent='🔄 Auto Cycle 0→N→0';cycleRunning=false;cycleTarget=0;return}"
+        "catch(e){btn.style.background='#dc2626';log.textContent='âŒ '+e.message;"
+        "btn.disabled=false;btn.textContent='ðŸ”„ Auto Cycle 0â†’Nâ†’0';cycleRunning=false;cycleTarget=0;return}"
         /* Sondear progreso sin bloquear; finalizar cuando cycle.active=false. */
         "fastPollId=setInterval(async()=>{"
         "try{let r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd:'kinco_cycle_status'})});"
         "let j=await r.json();if(j.motor){paint(j.motor);updateCounter(j.motor.pos,cycleTarget)}"
         "if(j.cycle&&!j.cycle.active){"
         "clearInterval(fastPollId);fastPollId=null;cycleRunning=false;cycleTarget=0;"
-        "btn.disabled=false;btn.textContent='🔄 Auto Cycle 0→N→0';"
+        "btn.disabled=false;btn.textContent='ðŸ”„ Auto Cycle 0â†’Nâ†’0';"
         "btn.style.background=(j.cycle.result==='ESP_OK')?'#16a34a':'#dc2626';"
         "log.textContent=JSON.stringify(j,null,2);"
         "let s=await api({cmd:'kinco_status'});if(s.motor){paint(s.motor);updateCounter(s.motor.pos,0)}}}"
@@ -2133,7 +2189,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 }
 
 /* ================================================================
- * API Pública
+ * API PÃºblica
  * ================================================================ */
 
 esp_err_t wifi_manager_init(const wifi_config_user_t *config)
@@ -2176,7 +2232,7 @@ esp_err_t wifi_manager_init(const wifi_config_user_t *config)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, nullptr));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, nullptr));
 
-    /* Configurar AP si está habilitado */
+    /* Configurar AP si estÃ¡ habilitado */
     if (s_config.enable_ap) {
         wifi_config_t ap_cfg = {};
         strcpy((char *)ap_cfg.ap.ssid, s_config.ap_ssid);
@@ -2191,7 +2247,7 @@ esp_err_t wifi_manager_init(const wifi_config_user_t *config)
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     }
 
-    /* Configurar STA si está habilitado y tiene SSID */
+    /* Configurar STA si estÃ¡ habilitado y tiene SSID */
     if (s_config.enable_sta && strlen(s_config.sta_ssid) > 0) {
         wifi_config_t sta_cfg = {};
         strcpy((char *)sta_cfg.sta.ssid, s_config.sta_ssid);

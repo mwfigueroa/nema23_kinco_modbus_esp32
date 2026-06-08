@@ -1,5 +1,31 @@
 # Kinco MK043E-20DT - NEMA23 / MD-2545 Context
 
+## Estado Actual Validado - 2026-06-08
+
+Este archivo conserva notas historicas del desarrollo. La implementacion actual
+validada es `Kinco_esp_Modbus_test_2`, con dos motores desde la interfaz web
+del ESP32:
+
+| Funcion | Motor 1 / AXIS 0 | Motor 2 / AXIS 1 |
+|---|---|---|
+| STEP/PUL | `%Q0.0` | `%Q0.1` |
+| DIR | `%Q0.2` | `%Q0.3` |
+| Enable driver | `%Q0.4` activo-bajo | `%Q0.5` activo-bajo |
+| HOME sensor | `%I0.0` | `%I0.3` |
+| JOG forward | `%I0.1` | `%I0.4` |
+| JOG backward | `%I0.2` | `%I0.5` |
+| Posicion Modbus | `40201-40202` / `%VD200` | `40351-40352` / `%VD500` |
+| Estado ciclo | `40252` / `%VW302` | `40402` / `%VW602` |
+
+Documentacion vigente:
+
+- `Info/programas_prueba/programa_final_2motores_il_ladder.md`
+- `Info/KincoBuilder/Documento_Implementacion_Final_Kinco_2_Motores.md`
+- `README.md`
+
+No usar el esquema historico de palabra de control `40051/40101` ni `%Q0.3`
+como enable. En el programa final `%Q0.3` es direccion del motor 2.
+
 ## Objetivo
 
 Controlar un motor NEMA23 con driver MD-2545 usando un PLC Kinco MK043E-20DT, comandos por MODBUS RTU RS-485 y posicionamiento con funciones `PHOME`, `PABS`, `PSTOP` y eventualmente `PJOG`.

@@ -1,403 +1,262 @@
 # Documento de Implementacion Final Kinco - 2 Motores
 
-Proyecto: Kinco MK043E-20DT + dos motores NEMA23 con drivers MD-2545  
-Control maestro: ESP32 por MODBUS RTU RS-485  
-Archivo base de contexto: `kinco_mk043e_nema23_context.md`  
-Proyecto Kinco revisado: `Final_kinco_project_2motores.kpr`  
-Fecha: 2026-06-01
+Proyecto validado: `Kinco_esp_Modbus_test_2`
+PLC: Kinco MK043E-20DT
+Control maestro: ESP32 por Modbus RTU RS485, Slave ID `1`
+Estado: dos motores funcionando desde la interfaz web del ESP32
+Fecha de validacion: 2026-06-08
 
-## 1. Objetivo
+Este documento reemplaza el esquema anterior basado en palabras de control
+`40051/40101`. El programa final usa registros dedicados por funcion:
+PABS, HOME, PREL y JOG. El mapa antiguo queda solo como contexto historico
+en `Info/kinco_mk043e_nema23_context.md`.
 
-Implementar el control de dos motores NEMA23 desde un PLC Kinco MK043E-20DT. El ESP32 actua como maestro MODBUS RTU y escribe comandos/parametros en el area `%V` del PLC. El PLC ejecuta la logica de movimiento con las instrucciones nativas de posicionamiento de KincoBuilder.
+## 1. Archivos Actuales
 
-Alcance del proyecto Kinco local revisado:
+| Archivo | Uso |
+|---|---|
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2.kpr` | Proyecto KincoBuilder actual |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/MAIN_MAIN.ilp` | Logica IL validada |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/Kinco_esp_Modbus_test_2.kgv` | Variables globales |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/Kinco_esp_Modbus_test_2_var_global.csv` | CSV alternativo para variables globales |
+| `Info/programas_prueba/programa_final_2motores_il_ladder.md` | Referencia operativa del programa validado |
 
-- Dos ejes PTO reales: `AXIS = 0` y `AXIS = 1`.
-- Funciones cargadas en el programa local: `PHOME`, `PABS` y `PSTOP`.
-- Control, estado y parametros por registros MODBUS holding.
-- Un sensor HOME por motor.
-- Una salida de enable independiente por driver.
-- PREL/PJOG quedan reservados y documentados como extension de mapa, pero no aparecen cargados en el `MAIN_MAIN.ilp` local revisado.
+## 2. Hardware y Cableado PLC
 
-Decision final de arquitectura: no se implementa tercer eje en la MK043E-20DT. Las instrucciones de posicionamiento documentadas por KincoBuilder aceptan solo `AXIS = 0` y `AXIS = 1`.
-
-## 2. Hardware y Cableado
-
-| Funcion | Motor 1 / Axis 0 | Motor 2 / Axis 1 | Nota |
+| Funcion | Motor 1 / AXIS 0 | Motor 2 / AXIS 1 | Nota |
 |---|---|---|---|
-| STEP/PUL | `%Q0.0` | `%Q0.1` | Salida PTO interna |
-| DIR | `%Q0.2` | `%Q0.3` | Salida PTO interna |
-| Enable driver | `%Q0.4` | `%Q0.5` | Salidas dedicadas del programa final local |
-| Sensor HOME | `%I0.0` | `%I0.1` | Entrada fisica de cero |
-| Posicion actual Kinco | `%SMD212` | `%SMD242` | Copiada a registros `%VD` |
+| STEP/PUL | `%Q0.0` | `%Q0.1` | Salidas PTO internas |
+| DIR | `%Q0.2` | `%Q0.3` | Salidas PTO internas |
+| Enable driver | `%Q0.4` activo-bajo | `%Q0.5` activo-bajo | `0` habilita, `1` deshabilita |
+| Sensor HOME | `%I0.0` | `%I0.3` | Entrada fisica de cero |
+| JOG forward fisico | `%I0.1` | `%I0.4` | Entrada manual |
+| JOG backward fisico | `%I0.2` | `%I0.5` | Entrada manual |
+| Posicion PTO Kinco | `%SMD212` | `%SMD242` | Contadores internos |
+| Posicion Modbus | `%VD200` | `%VD500` | Copia leida por ESP32 |
 
-Nota critica: para dos ejes, `%Q0.3` se usa como direccion del `AXIS = 1`. Por eso el enable de los drivers se separa a `%Q0.4` y `%Q0.5`.
+Nota critica: `%Q0.3` es direccion del motor 2. No usar `%Q0.3` como enable.
+Los enables reales del programa final son `%Q0.4` y `%Q0.5`.
 
 ## 3. Configuracion KincoBuilder
 
-Configuracion recomendada del puerto serie COM1:
-
 | Parametro | Valor |
 |---|---|
-| Protocolo | MODBUS RTU Slave |
+| Protocolo COM1 | Modbus RTU Slave |
 | Station ID | `1` |
-| Baudrate | `115200` (probar; KincoBuilder puede limitar a 9600/19200 — fallback 19200) |
+| Baudrate | `115200` |
 | Formato | `8N1` |
+| Programa principal | `MAIN_MAIN.ilp` |
+| Variables globales | `Kinco_esp_Modbus_test_2.kgv` o CSV importado |
 
-Modelo objetivo: Kinco MK043E-20DT o el modelo equivalente que KincoBuilder muestre para esta CPU.
+## 4. Arquitectura del Programa
 
-Todas las variables usadas por el programa se declaran en `VAR_GLOBAL` con direccion absoluta. La tabla local de `MAIN` queda vacia.
-
-## 4. Reglas de Implementacion IL
-
-KincoBuilder usa prefijo `%` en direcciones absolutas:
-
-```text
-%I0.0
-%Q0.0
-%M10.0
-%VW100
-%VD104
-%VB140
-%SM0.0
-%SMD212
-```
-
-Comentarios validos:
+El ESP32 no envia una palabra de control general. En su lugar escribe
+parametros y luego un valor distinto de cero en el registro de comando
+correspondiente:
 
 ```text
-(* comentario *)
+PABS absoluto: destino distinto de 0
+HOME:          comando distinto de 0
+PREL relativo: distancia distinta de 0
+JOG:           1 forward, 2 backward, 0 stop
 ```
 
-No usar como comentarios:
+El PLC captura el comando, limpia el registro, habilita el driver durante el
+movimiento y publica estado/errores en registros de diagnostico.
 
-```text
-// comentario
-; comentario
-```
+## 5. Mapa Modbus Motor 1 / AXIS 0
 
-Las instrucciones de movimiento disparan por flanco ascendente en `EXEC`. Por eso, despues de escribir un comando de inicio desde MODBUS, el ESP32 debe bajar el bit de start y dejar solo enable.
+### Escritura ESP32 -> PLC
 
-## 5. Mapa MODBUS Principal
-
-Equivalencia usada:
-
-```text
-%VW0   -> 40001
-%VW100 -> 40051
-%VW200 -> 40101
-```
-
-Muchas librerias MODBUS usan direccion base 0:
-
-```text
-40051 -> address 50
-40101 -> address 100
-```
-
-### 5.1 Motor 1 / Axis 0
-
-| MODBUS | PLC | Tipo | Funcion |
+| Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| `40051` | `%VW100` | WORD | Control motor 1 |
-| `40053-40054` | `%VD104` | DINT | Posicion absoluta PABS |
-| `40055-40056` | `%VD108` | DWORD | Frecuencia maxima PABS |
-| `40057` | `%VW112` | WORD | Frecuencia minima PABS |
-| `40058` | `%VW114` | WORD | Tiempo aceleracion PABS |
-| `40059` | `%VW116` | INT | Modo HOME |
-| `40060` | `%VW118` | INT | Direccion HOME |
-| `40061` | `%VW120` | WORD | Frecuencia minima HOME |
-| `40063-40064` | `%VD124` | DWORD | Frecuencia maxima HOME |
-| `40065` | `%VW128` | WORD | Tiempo aceleracion HOME |
-| `40066` | `%VW130` | WORD | Estado motor 1 |
-| `40067-40068` | `%VD132` | DINT | Posicion actual copiada de `%SMD212` |
-| bytes `%VB140-%VB142` | `%VB140-%VB142` | BYTE | Error IDs PABS/HOME/STOP |
+| `40151-40152` | `%VD100` | DINT | Destino PABS; distinto de `0` arranca ciclo ida-vuelta |
+| `40153-40154` | `%VD104` | DWORD | Frecuencia maxima PABS |
+| `40155` | `%VW108` | WORD | Frecuencia minima PABS |
+| `40156` | `%VW110` | WORD | Tiempo acel/decel PABS |
+| `40157` | `%VW112` | WORD | Comando HOME; distinto de `0` arranca PHOME |
+| `40158` | `%VW114` | INT | Modo HOME; `1` solo sensor HOME |
+| `40159` | `%VW116` | INT | Direccion HOME; `0` forward, `1` backward |
+| `40160` | `%VW118` | WORD | Frecuencia minima HOME |
+| `40161-40162` | `%VD120` | DWORD | Frecuencia maxima HOME |
+| `40163` | `%VW124` | WORD | Tiempo acel/decel HOME |
+| `40167-40168` | `%VD132` | DINT | Distancia PREL; distinto de `0` arranca relativo |
+| `40169-40170` | `%VD136` | DWORD | Frecuencia maxima PREL |
+| `40171` | `%VW140` | WORD | Frecuencia minima PREL |
+| `40172` | `%VW142` | WORD | Tiempo acel/decel PREL |
+| `40175` | `%VW148` | WORD | Comando JOG: `0` stop, `1` forward, `2` backward |
+| `40176` | `%VW150` | INT | Direccion JOG activa |
+| `40177-40178` | `%VD152` | DWORD | Velocidad JOG |
 
-### 5.2 Motor 2 / Axis 1
+### Lectura PLC -> ESP32
 
-| MODBUS | PLC | Tipo | Funcion |
+| Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| `40101` | `%VW200` | WORD | Control motor 2 |
-| `40103-40104` | `%VD204` | DINT | Posicion absoluta PABS |
-| `40105-40106` | `%VD208` | DWORD | Frecuencia maxima PABS |
-| `40107` | `%VW212` | WORD | Frecuencia minima PABS |
-| `40108` | `%VW214` | WORD | Tiempo aceleracion PABS |
-| `40109` | `%VW216` | INT | Modo HOME |
-| `40110` | `%VW218` | INT | Direccion HOME |
-| `40111` | `%VW220` | WORD | Frecuencia minima HOME |
-| `40113-40114` | `%VD224` | DWORD | Frecuencia maxima HOME |
-| `40115` | `%VW228` | WORD | Tiempo aceleracion HOME |
-| `40116` | `%VW230` | WORD | Estado motor 2 |
-| `40117-40118` | `%VD232` | DINT | Posicion actual copiada de `%SMD242` |
-| bytes `%VB240-%VB242` | `%VB240-%VB242` | BYTE | Error IDs PABS/HOME/STOP |
+| `40201-40202` | `%VD200` | DINT | Posicion actual, copia de `%SMD212` |
+| `40252` | `%VW302` | WORD | Estado del ciclo |
+| `40253` | `%VW304` | WORD | Error PABS, low byte `%VB304` |
+| `40254` | `%VW306` | WORD | Error PREL low byte, debug high byte |
+| `40255` | `%VW308` | WORD | Estado HOME |
+| `40256` | `%VW310` | WORD | Error HOME, low byte `%VB310` |
+| `40257` | `%VW312` | WORD | Estado JOG |
+| `40258` | `%VW314` | WORD | Error JOG low byte, error PSTOP high byte |
 
-Validar endianness de los valores de 32 bits (`%VD`) en el maestro ESP32. Algunas librerias intercambian palabra alta/baja.
+## 6. Mapa Modbus Motor 2 / AXIS 1
 
-## 6. Bits de Control
+### Escritura ESP32 -> PLC
 
-Los bits son iguales para ambos ejes. En axis 0 se usan `%V100.x`; en axis 1 se usan `%V200.x`.
-
-| Bit | Axis 0 | Axis 1 | Funcion |
+| Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| 0 | `%V100.0` | `%V200.0` | Enable driver |
-| 1 | `%V100.1` | `%V200.1` | Reset posicion logica |
-| 2 | `%V100.2` | `%V200.2` | Start PABS |
-| 3 | `%V100.3` | `%V200.3` | Start HOME |
-| 4 | `%V100.4` | `%V200.4` | Reset estados internos |
-| 5 | `%V100.5` | `%V200.5` | Stop |
+| `40301-40302` | `%VD400` | DINT | Destino PABS; distinto de `0` arranca ciclo ida-vuelta |
+| `40303-40304` | `%VD404` | DWORD | Frecuencia maxima PABS |
+| `40305` | `%VW408` | WORD | Frecuencia minima PABS |
+| `40306` | `%VW410` | WORD | Tiempo acel/decel PABS |
+| `40307` | `%VW412` | WORD | Comando HOME; distinto de `0` arranca PHOME |
+| `40308` | `%VW414` | INT | Modo HOME; `1` solo sensor HOME |
+| `40309` | `%VW416` | INT | Direccion HOME; `0` forward, `1` backward |
+| `40310` | `%VW418` | WORD | Frecuencia minima HOME |
+| `40311-40312` | `%VD420` | DWORD | Frecuencia maxima HOME |
+| `40313` | `%VW424` | WORD | Tiempo acel/decel HOME |
+| `40317-40318` | `%VD432` | DINT | Distancia PREL; distinto de `0` arranca relativo |
+| `40319-40320` | `%VD436` | DWORD | Frecuencia maxima PREL |
+| `40321` | `%VW440` | WORD | Frecuencia minima PREL |
+| `40322` | `%VW442` | WORD | Tiempo acel/decel PREL |
+| `40325` | `%VW448` | WORD | Comando JOG: `0` stop, `1` forward, `2` backward |
+| `40326` | `%VW450` | INT | Direccion JOG activa |
+| `40327-40328` | `%VD452` | DWORD | Velocidad JOG |
 
-Valores de comando con enable activo:
+### Lectura PLC -> ESP32
 
-| Accion | Valor |
-|---|---:|
-| Enable | `0x0001` |
-| Reset posicion | `0x0003` |
-| Start PABS | `0x0005` |
-| Start HOME | `0x0009` |
-| Stop | `0x0021` |
-
-Despues de `HOME` o `PABS`, volver a escribir `0x0001` para dejar solo enable.
-
-## 7. Bits de Estado
-
-Los bits son iguales para ambos ejes. Axis 0 usa `%VW130`; axis 1 usa `%VW230`.
-
-| Bit | Axis 0 | Axis 1 | Significado |
+| Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| 0 | `%V130.0` | `%V230.0` | HomeOK |
-| 1 | `%V130.1` | `%V230.1` | HomeDone |
-| 2 | `%V130.2` | `%V230.2` | HomeErr |
-| 3 | `%V130.3` | `%V230.3` | PabsDone |
-| 4 | `%V130.4` | `%V230.4` | PabsErr |
-| 5 | `%V130.5` | `%V230.5` | AxisBusy |
-| 6 | `%V130.6` | `%V230.6` | HomingActive |
-| 7 | `%V130.7` | `%V230.7` | PabsActive |
-| 8 | `%V131.0` | `%V231.0` | HomeSensor |
-| 9 | `%V131.1` | `%V231.1` | SystemReady |
-| 10 | `%V131.2` | `%V231.2` | EnableOut |
-| 11 | `%V131.3` | `%V231.3` | StopDone |
+| `40351-40352` | `%VD500` | DINT | Posicion actual, copia de `%SMD242` |
+| `40402` | `%VW602` | WORD | Estado del ciclo |
+| `40403` | `%VW604` | WORD | Error PABS, low byte `%VB604` |
+| `40404` | `%VW606` | WORD | Error PREL low byte, debug high byte |
+| `40405` | `%VW608` | WORD | Estado HOME |
+| `40406` | `%VW610` | WORD | Error HOME, low byte `%VB610` |
+| `40407` | `%VW612` | WORD | Estado JOG |
+| `40408` | `%VW614` | WORD | Error JOG low byte, error PSTOP high byte |
 
-## 8. Secuencias MODBUS
+## 7. Direcciones Base 0
 
-### 8.1 HOME motor 1
+| Registro Modbus | Address base 0 |
+|---:|---:|
+| `40151` | `150` |
+| `40153` | `152` |
+| `40155` | `154` |
+| `40156` | `155` |
+| `40157` | `156` |
+| `40167` | `166` |
+| `40175` | `174` |
+| `40201` | `200` |
+| `40252` | `251` |
+| `40301` | `300` |
+| `40303` | `302` |
+| `40305` | `304` |
+| `40306` | `305` |
+| `40307` | `306` |
+| `40317` | `316` |
+| `40325` | `324` |
+| `40351` | `350` |
+| `40402` | `401` |
 
-```text
-40051 = 0x0001
-40059 = 1
-40060 = 0
-40061 = 200
-40063-40064 = 1000
-40065 = 300
-40051 = 0x0009
-40051 = 0x0001
-Leer 40066 hasta bit 0 = 1 o bit 2 = 1
-```
+## 8. Bits de Estado
 
-### 8.2 HOME motor 2
+Motor 1 usa `%VW302`; motor 2 usa `%VW602`.
 
-```text
-40101 = 0x0001
-40109 = 1
-40110 = 0
-40111 = 200
-40113-40114 = 1000
-40115 = 300
-40101 = 0x0009
-40101 = 0x0001
-Leer 40116 hasta bit 0 = 1 o bit 2 = 1
-```
+| Bit | Motor 1 | Motor 2 | Significado |
+|---:|---|---|---|
+| 0 | `%V302.0` | `%V602.0` | CycleActive |
+| 1 | `%V302.1` | `%V602.1` | MoveOutActive |
+| 2 | `%V302.2` | `%V602.2` | WaitReturnActive |
+| 3 | `%V302.3` | `%V602.3` | ReturnActive |
+| 4 | `%V302.4` | `%V602.4` | CycleDone |
+| 5 | `%V302.5` | `%V602.5` | CycleErr |
+| 6 | `%V302.6` | `%V602.6` | PabsOutDone |
+| 7 | `%V302.7` | `%V602.7` | PabsOutErr |
+| 8 | `%V303.0` | `%V603.0` | PabsReturnDone |
+| 9 | `%V303.1` | `%V603.1` | PabsReturnErr |
+| 10 | `%V303.2` | `%V603.2` | EnableOut logico |
+| 11 | `%V303.3` | `%V603.3` | WaitDone |
+| 12 | `%V303.4` | `%V603.4` | PrelActive |
+| 13 | `%V303.5` | `%V603.5` | PrelDone |
+| 14 | `%V303.6` | `%V603.6` | PrelErr |
+| 15 | `%V303.7` | `%V603.7` | PlcAlive |
 
-### 8.3 PABS motor 1
+## 9. Bits HOME y JOG
 
-```text
-40053-40054 = posicion destino
-40055-40056 = MAXF
-40057 = MINF
-40058 = TIME
-40051 = 0x0005
-40051 = 0x0001
-Leer 40066 hasta bit 3 = 1 o bit 4 = 1
-```
+HOME motor 1 usa `%VW308`; HOME motor 2 usa `%VW608`.
 
-### 8.4 PABS motor 2
+| Bit | Significado |
+|---:|---|
+| 0 | HomeActive |
+| 1 | HomeDone |
+| 2 | HomeErr |
+| 3 | HomeSensor |
+| 4 | HomeDir |
+| 5 | HomeResetPulse |
 
-```text
-40103-40104 = posicion destino
-40105-40106 = MAXF
-40107 = MINF
-40108 = TIME
-40101 = 0x0005
-40101 = 0x0001
-Leer 40116 hasta bit 3 = 1 o bit 4 = 1
-```
+JOG motor 1 usa `%VW312`; JOG motor 2 usa `%VW612`.
 
-### 8.5 STOP
+| Bit | Significado |
+|---:|---|
+| 0 | JogActive |
+| 1 | JogDone |
+| 2 | JogErr |
+| 3 | JogDir |
+| 4 | Entrada JOG forward |
+| 5 | Entrada JOG backward |
+| 6 | Comando web JOG activo |
+| 7 | Error PSTOP JOG |
 
-```text
-Motor 1: 40051 = 0x0021
-Motor 2: 40101 = 0x0021
-Luego volver a enable si corresponde:
-Motor 1: 40051 = 0x0001
-Motor 2: 40101 = 0x0001
-```
+## 10. Bloques IL Usados
 
-## 9. Sintaxis de Bloques Kinco
-
-### 9.1 PABS
-
-```text
-PABS AXIS, EXEC, MINF, MAXF, TIME, POS, DONE, ERR, ERRID
-```
-
-Tipos:
-
-| Pin | Tipo | Uso en proyecto |
+| Bloque | Motor 1 | Motor 2 |
 |---|---|---|
-| `AXIS` | INT | `0` o `1` |
-| `EXEC` | BOOL | Bit de start por flanco |
-| `MINF` | WORD | `%VW112` / `%VW212` |
-| `MAXF` | DWORD | `%VD108` / `%VD208` |
-| `TIME` | WORD | `%VW114` / `%VW214` |
-| `POS` | DINT | `%VD104` / `%VD204` |
-| `DONE` | BOOL | `%M11.1` / `%M21.1` |
-| `ERR` | BOOL | `%M11.2` / `%M21.2` |
-| `ERRID` | BYTE | `%VB140` / `%VB240` |
+| PABS | `PABS AXIS=0` | `PABS AXIS=1` |
+| PREL | `PREL AXIS=0` | `PREL AXIS=1` |
+| PHOME | `PHOME AXIS=0`, HOME `%I0.0` | `PHOME AXIS=1`, HOME `%I0.3` |
+| PJOG | `PJOG AXIS=0` | `PJOG AXIS=1` |
+| PSTOP | `PSTOP AXIS=0` | `PSTOP AXIS=1` |
+| Reset posicion | `%SM201.6` | `%SM231.6` |
+| Busy PTO debug | `%SM66.7` | `%SM76.7` |
 
-### 9.2 PHOME
+## 11. API ESP32
 
-```text
-PHOME AXIS, EXEC, HOME, NHOME, MODE, DIRC, MINF, MAXF, TIME, DONE, ERR, ERRID
+La interfaz web y la API seleccionan motor con `axis`:
+
+```http
+GET /api/status?axis=0
+GET /api/status?axis=1
+GET /api/fast_status?axis=0
+GET /api/fast_status?axis=1
 ```
 
-Tipos:
+Ejemplos de comandos:
 
-| Pin | Tipo | Uso en proyecto |
-|---|---|---|
-| `AXIS` | INT | `0` o `1` |
-| `EXEC` | BOOL | Bit de start por flanco |
-| `HOME` | BOOL | `%I0.0` / `%I0.1` |
-| `NHOME` | BOOL | `%M10.6` / `%M20.6`, falso |
-| `MODE` | INT | `%VW116` / `%VW216` |
-| `DIRC` | INT | `%VW118` / `%VW218` |
-| `MINF` | WORD | `%VW120` / `%VW220` |
-| `MAXF` | DWORD | `%VD124` / `%VD224` |
-| `TIME` | WORD | `%VW128` / `%VW228` |
-| `DONE` | BOOL | `%M12.1` / `%M22.1` |
-| `ERR` | BOOL | `%M12.2` / `%M22.2` |
-| `ERRID` | BYTE | `%VB141` / `%VB241` |
-
-Modo HOME:
-
-| Valor | Significado |
-|---:|---|
-| `0` | Usa `HOME` y `NHOME` |
-| `1` | Usa solo `HOME` |
-
-Direccion HOME:
-
-| Valor | Significado |
-|---:|---|
-| `0` | Forward |
-| `1` | Backward |
-
-### 9.3 PSTOP
-
-```text
-PSTOP AXIS, EXEC, DONE, ERRID
+```json
+{"cmd":"kinco_pabs","axis":0,"arg":5000,"speed":2000,"minf":300,"time":300}
+{"cmd":"kinco_pabs","axis":1,"arg":5000,"speed":2000,"minf":300,"time":300}
+{"cmd":"kinco_prel","axis":1,"arg":7000,"speed":2000,"minf":300,"time":300}
+{"cmd":"kinco_home","axis":1,"dir":0,"mode":1,"speed":1000,"minf":200,"time":300}
+{"cmd":"kinco_jog_fwd","axis":1,"speed":1000}
+{"cmd":"kinco_jog_stop","axis":1}
 ```
 
-Uso:
+Comandos rechazados en esta version porque pertenecen al esquema viejo:
+`kinco_enable`, `kinco_stop`, `kinco_reset_pos`, `kinco_reset_status`.
 
-```text
-PSTOP 0, A0_Ctrl_Stop, A0_M_StopDone, A0_ErrID_STOP
-PSTOP 1, A1_Ctrl_Stop, A1_M_StopDone, A1_ErrID_STOP
-```
+## 12. Checklist de Validacion
 
-## 10. Resumen del Programa PLC Local
-
-El programa `MAIN_MAIN.ilp` revisado contiene networks `0` a `79`.
-
-| Network | Funcion |
-|---:|---|
-| 0-1 | Limpieza de bits especiales PTO usados por el entorno Kinco |
-| 2-12 | Defaults e inicializacion axis 0 |
-| 13-23 | Defaults e inicializacion axis 1 |
-| 24-25 | Enable de drivers `%Q0.4` y `%Q0.5` |
-| 26-27 | Reset de posicion logica `%SM201.6` y `%SM231.6` |
-| 28-29 | `PSTOP` axis 0 y axis 1 |
-| 30-31 | Liberacion de stop por software cuando hay start HOME/PABS |
-| 32-33 | `PHOME` axis 0 y axis 1 |
-| 34-37 | Set/reset de `HomeOK` |
-| 38-43 | Calculo de errores negados y `SystemReady` |
-| 44-45 | `PABS` axis 0 y axis 1 |
-| 46-53 | Marcas internas de movimiento activo |
-| 54-55 | Copia de posicion actual `%SMD212/%SMD242` a `%VD132/%VD232` |
-| 56-67 | Estado MODBUS axis 0 |
-| 68-79 | Estado MODBUS axis 1 |
-
-## 11. Variables Globales Principales
-
-| Simbolo | Direccion | Tipo | Comentario |
-|---|---|---|---|
-| `A0_STEP` | `%Q0.0` | BOOL | STEP motor 1 |
-| `A1_STEP` | `%Q0.1` | BOOL | STEP motor 2 |
-| `A0_DIR` | `%Q0.2` | BOOL | DIR motor 1 |
-| `A1_DIR` | `%Q0.3` | BOOL | DIR motor 2 |
-| `A0_ENABLE_OUT` | `%Q0.4` | BOOL | Enable driver motor 1 |
-| `A1_ENABLE_OUT` | `%Q0.5` | BOOL | Enable driver motor 2 |
-| `A0_HOME_SENSOR` | `%I0.0` | BOOL | Sensor HOME motor 1 |
-| `A1_HOME_SENSOR` | `%I0.1` | BOOL | Sensor HOME motor 2 |
-| `A0_Ctrl_Word` | `%VW100` | WORD | Control motor 1 |
-| `A1_Ctrl_Word` | `%VW200` | WORD | Control motor 2 |
-| `A0_Status_Word` | `%VW130` | WORD | Estado motor 1 |
-| `A1_Status_Word` | `%VW230` | WORD | Estado motor 2 |
-| `A0_Status_PosActual` | `%VD132` | DINT | Posicion actual motor 1 |
-| `A1_Status_PosActual` | `%VD232` | DINT | Posicion actual motor 2 |
-
-## 12. Checklist de Puesta en Marcha
-
-1. Confirmar modelo de PLC seleccionado en KincoBuilder.
-2. Configurar COM1 como MODBUS RTU Slave con Station ID `1`.
-3. Cargar la tabla global de variables.
-4. Compilar el proyecto Kinco sin errores.
-5. Descargar programa al PLC.
-6. Verificar que `%Q0.0/%Q0.2` mueven STEP/DIR del motor 1.
-7. Verificar que `%Q0.1/%Q0.3` mueven STEP/DIR del motor 2.
-8. Verificar que `%Q0.4/%Q0.5` habilitan los drivers.
-9. Validar polaridad de sensores HOME `%I0.0/%I0.1`.
-10. Probar HOME de un eje por vez con baja velocidad.
-11. Probar PABS de un eje por vez con recorridos cortos.
-12. Leer registros de estado y posicion desde el ESP32.
-13. Confirmar endianness de registros de 32 bits.
-14. Probar `STOP` durante movimiento.
-15. Solo despues de validar un eje, habilitar pruebas simultaneas de ambos motores.
-
-## 13. Extension Reservada PREL/PJOG
-
-El contexto adjunto define una extension final con `PREL` y `PJOG`, incluyendo mapa reservado en `%VD140/%VD144/%VW148/%VW150/%VD152/%VW156` para axis 0 y `%VD240/%VD244/%VW248/%VW250/%VD252/%VW256` para axis 1.
-
-Sin embargo, el archivo local revisado `Final_kinco_project_2motores/MAIN_MAIN.ilp` no contiene las networks `80-121` de esa extension. Si se decide cargar PREL/PJOG en KincoBuilder, hay que:
-
-- Agregar las networks `80-121` del contexto.
-- Actualizar `SystemReady` para bloquear tambien por error `PREL` y `PJOG`.
-- Actualizar `AxisBusy` para incluir homing, PABS, PREL y PJOG.
-- Definir estados adicionales para bits 12-15.
-- Confirmar si el mapa final debe migrar estados/posicion desde `%VW130/%VD132` y `%VW230/%VD232` hacia `%VW160/%VD164` y `%VW260/%VD264`.
-
-Comandos reservados de PREL/PJOG:
-
-| Accion | Axis 0 | Axis 1 |
-|---|---:|---:|
-| PREL | `40051 = 0x0041`, luego `0x0001` | `40101 = 0x0041`, luego `0x0001` |
-| JOG Forward | `40051 = 0x0081`, mantener | `40101 = 0x0081`, mantener |
-| JOG Backward | `40051 = 0x0101`, mantener | `40101 = 0x0101`, mantener |
-| Soltar JOG | `40051 = 0x0001` | `40101 = 0x0001` |
-
-## 14. Pendientes de Validacion en Campo
-
-- Confirmar fisicamente la polaridad y cableado de HOME en ambos ejes.
-- Confirmar si los drivers MD-2545 requieren enable activo alto o activo bajo.
-- Validar que el maestro ESP32 escriba correctamente los pares de registros `%VD`.
-- Definir limites mecanicos y manejo de finales de carrera si se agregan.
-- Probar velocidades iniciales bajas antes de usar frecuencias nominales.
-- Guardar una copia exportada del proyecto Kinco despues de compilar y descargar.
+1. Cargar `MAIN_MAIN.ilp` y `Kinco_esp_Modbus_test_2.kgv` en KincoBuilder.
+2. Confirmar PLC en RUN y Modbus RTU Slave ID `1`.
+3. Verificar salidas:
+   - Motor 1: `%Q0.0`, `%Q0.2`, `%Q0.4`.
+   - Motor 2: `%Q0.1`, `%Q0.3`, `%Q0.5`.
+4. Verificar entradas:
+   - Motor 1: `%I0.0`, `%I0.1`, `%I0.2`.
+   - Motor 2: `%I0.3`, `%I0.4`, `%I0.5`.
+5. Abrir la interfaz web del ESP32 y probar Motor 1 con recorrido corto.
+6. Cambiar selector a Motor 2 y probar recorrido corto.
+7. Confirmar que `%Q0.3` solo actua como direccion de motor 2.
