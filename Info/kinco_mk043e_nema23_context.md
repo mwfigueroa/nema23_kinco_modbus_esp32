@@ -28,6 +28,40 @@ No usar el esquema historico de palabra de control `40051/40101` ni `%Q0.3`
 como enable. En el programa final `%Q0.3` es direccion del motor 2. PABS ya no
 hace ida-vuelta: el destino puede ser `0` y se dispara con `40164` o `40314`.
 
+## Punto Guardado - 2026-06-08 17:50 ART
+
+Rama GitHub: `NEMA23_KINCO_MODBUS_ESP32`
+
+Commit funcional publicado:
+
+```text
+ea88839 fix: convierte PABS a posicionamiento absoluto simple
+```
+
+Estado guardado:
+
+- PLC/KincoBuilder en `Kinco_esp_Modbus_test_2`.
+- Dos motores operativos desde ESP32.
+- PABS corregido a posicionamiento absoluto simple.
+- `PABS arg=0` valido para ir a cero sin ida-vuelta.
+- El contador no se resetea al terminar PABS.
+- HOME sigue siendo la operacion que pone el contador en cero al finalizar.
+- Motor 1 dispara PABS con `40164` / `%VW126`.
+- Motor 2 dispara PABS con `40314` / `%VW426`.
+- `HomeSensor` declarado en KGV/CSV como `%I0.0`; `PHOME` en ILP usa `%I0.0` directo.
+
+Validaciones realizadas antes de guardar:
+
+- KGV y CSV: `250` variables, sin faltantes ni diferencias de direccion/tipo.
+- `MAIN_MAIN.ilp`: sin operandos simbolicos pendientes.
+- `git diff --check`: sin errores, solo avisos CRLF normales.
+- ESP32 build OK: `.\scripts\build.ps1 -BuildDir build_marti`.
+
+Pendiente operativo para probar en hardware:
+
+- Descargar/compilar proyecto en KincoBuilder.
+- Flashear ESP32 si se quiere usar la UI/API actualizada con `Start PABS`.
+
 ## Objetivo
 
 Controlar un motor NEMA23 con driver MD-2545 usando un PLC Kinco MK043E-20DT, comandos por MODBUS RTU RS-485 y posicionamiento con funciones `PHOME`, `PABS`, `PSTOP` y eventualmente `PJOG`.
