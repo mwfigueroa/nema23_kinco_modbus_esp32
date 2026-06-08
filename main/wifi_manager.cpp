@@ -33,8 +33,11 @@ static esp_netif_t *s_sta_netif = nullptr;
 #define KINCO_SLAVE_ID          1
 #define KINCO_TIMEOUT_MS        700
 #define KINCO_EDGE_PULSE_MS     100
-#define KINCO_MAX_REGS          16
+#define KINCO_MAX_REGS          120
 #define KINCO_TEST_STEPS        5000
+#define KINCO_REL_TEST_STEPS    7000
+#define KINCO_PROGRAM_NAME      "Kinco_esp_Modbus_test_2/MAIN_MAIN.ilp"
+#define KINCO_CYCLE_BUSY_MASK   0x100F
 
 #define KINCO_CMD_ENABLE        0x0001
 #define KINCO_CMD_RESET_POS     0x0003
@@ -49,9 +52,15 @@ static esp_netif_t *s_sta_netif = nullptr;
 #define KINCO_DEFAULT_PABS_MAXF 2000
 #define KINCO_DEFAULT_PABS_MINF 300
 #define KINCO_DEFAULT_PABS_TIME 300
+#define KINCO_DEFAULT_PREL_MAXF 2000
+#define KINCO_DEFAULT_PREL_MINF 300
+#define KINCO_DEFAULT_PREL_TIME 300
+#define KINCO_DEFAULT_HOME_MODE 1
+#define KINCO_DEFAULT_HOME_DIR  0
 #define KINCO_DEFAULT_HOME_MAXF 1000
 #define KINCO_DEFAULT_HOME_MINF 200
 #define KINCO_DEFAULT_HOME_TIME 300
+#define KINCO_DEFAULT_JOG_SPEED 1000
 #define KINCO_MIN_FREQ          125
 #define KINCO_MAX_FREQ          200000
 
@@ -61,6 +70,7 @@ typedef struct {
     uint16_t pabs_maxf;
     uint16_t pabs_minf;
     uint16_t pabs_time;
+    uint16_t home_cmd;
     uint16_t home_mode;
     uint16_t home_dir;
     uint16_t home_minf;
@@ -70,11 +80,16 @@ typedef struct {
     uint16_t prel_maxf;
     uint16_t prel_minf;
     uint16_t prel_time;
-    uint16_t pjog_speed;
-    uint16_t pjog_dir;
+    uint16_t jog_cmd;
+    uint16_t jog_dir;
+    uint16_t jog_speed;
     uint16_t status;
     uint16_t status2;
     uint16_t position;
+    uint16_t home_status;
+    uint16_t home_error;
+    uint16_t jog_status;
+    uint16_t jog_error;
 } kinco_axis_map_t;
 
 typedef struct {
@@ -84,23 +99,52 @@ typedef struct {
     uint32_t maxf;
     uint16_t minf;
     uint16_t time_ms;
-    uint16_t control_word;
+    int32_t rel_steps;
+    uint32_t prel_maxf;
+    uint16_t prel_minf;
+    uint16_t prel_time_ms;
+    uint16_t home_cmd;
+    uint16_t home_mode;
     uint16_t home_dir;
+    uint16_t home_minf;
+    uint32_t home_maxf;
+    uint16_t home_time_ms;
+    uint16_t jog_cmd;
+    uint16_t jog_dir;
+    uint32_t jog_speed;
+    uint16_t control_word;
     uint16_t status_word;
     uint16_t status_word2;
     uint16_t status_word3;
+    uint16_t home_status_word;
+    uint16_t home_error_word;
+    uint16_t jog_status_word;
+    uint16_t jog_error_word;
     int32_t position;
 } kinco_axis_status_t;
 
 static const kinco_axis_map_t s_kinco_axis[1] = {
     /*
-     * Mapa del programa PLC pabs_basico_5000:
-     * 40051/%VD100 = comando pasos, 40053/%VD104 = maxf,
-     * 40055/%VW108 = minf, 40056/%VW110 = accel,
-     * 40152/%VW302 = estado, 40101/%VD200 = posicion.
+     * Mapa del programa PLC Kinco_esp_Modbus_test_2 / MAIN_MAIN.ilp:
+     *
+     * Trigger: escribir un valor ≠ 0 en 40151-40152 (%VD100 = Cmd_TargetSteps)
+     * arranca automaticamente el ciclo completo (ida → espera 3 s → vuelta a 0).
+     * No tiene palabra de control en 40070; PSTOP se usa internamente para JOG.
+     *
+     * Parametros PABS:   MAXF=40153-40154 (%VD104), MINF=40155 (%VW108),
+     *                    TIME=40156 (%VW110).
+     * Estado:            40252 (%VW302) bits de ciclo.
+     * Error PABS:        40253 (%VB304) — byte bajo.
+     * Posicion actual:   40201-40202 (%VD200).
+     *
+     * HOME usa 40157-40163 y estado adicional 40255-40256.
+     * PREL relativo usa 40167-40172.
+     * JOG usa 40175-40178 y estado adicional 40257-40258.
+     * Campo control se pone a 0 porque este PLC no usa palabra de control.
      * Las direcciones aqui son base 0 para Modbus: 40001 -> 0.
      */
-    {69, 50, 52, 54, 55, 56, 57, 58, 59, 61, 0, 0, 0, 0, 0, 0, 151, 152, 100},
+    {0, 150, 152, 154, 155, 156, 157, 158, 159, 160, 162,
+     166, 168, 170, 171, 174, 175, 176, 251, 252, 200, 254, 255, 256, 257},
 };
 
 static uint16_t modbus_crc16_local(const uint8_t *buf, size_t len)
@@ -157,23 +201,31 @@ static esp_err_t plc_write_holding_registers(uint16_t start_reg, const uint16_t 
     }
     size_t req_len = modbus_append_crc(req, payload_len);
 
-    uint8_t resp[64] = {};
+    uint8_t resp[260] = {};
     size_t resp_len = 0;
     status_led_modbus_activity(STATUS_LED_MODBUS_WRITE);
     esp_err_t ret = bridge_rs485_transact(req, req_len, resp, sizeof(resp),
                                           &resp_len, KINCO_TIMEOUT_MS);
     if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Modbus FC16 fallo: reg=%u qty=%u err=%s",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity,
+                 esp_err_to_name(ret));
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ret;
     }
 
     if (!modbus_crc_ok(resp, resp_len)) {
+        ESP_LOGW(TAG, "Modbus FC16 CRC invalido: reg=%u qty=%u resp_len=%u",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity,
+                 (unsigned)resp_len);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_ERR_INVALID_CRC;
     }
 
     if (resp_len >= 5 && resp[0] == KINCO_SLAVE_ID && resp[1] == (0x10 | 0x80)) {
         if (exception_code) *exception_code = resp[2];
+        ESP_LOGW(TAG, "Modbus FC16 exception: reg=%u qty=%u code=0x%02X",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity, resp[2]);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_FAIL;
     }
@@ -181,10 +233,15 @@ static esp_err_t plc_write_holding_registers(uint16_t start_reg, const uint16_t 
     if (resp_len != 8 || resp[0] != KINCO_SLAVE_ID || resp[1] != 0x10 ||
         resp[2] != (uint8_t)(start_reg >> 8) || resp[3] != (uint8_t)(start_reg & 0xFF) ||
         resp[4] != (uint8_t)(quantity >> 8) || resp[5] != (uint8_t)(quantity & 0xFF)) {
+        ESP_LOGW(TAG, "Modbus FC16 respuesta invalida: reg=%u qty=%u resp_len=%u",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity,
+                 (unsigned)resp_len);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_ERR_INVALID_RESPONSE;
     }
 
+    ESP_LOGD(TAG, "Modbus FC16 OK: reg=%u qty=%u",
+             (unsigned)(40001 + start_reg), (unsigned)quantity);
     return ESP_OK;
 }
 
@@ -205,32 +262,42 @@ static esp_err_t plc_write_single_register(uint16_t reg, uint16_t value,
     };
     size_t req_len = modbus_append_crc(req, 6);
 
-    uint8_t resp[64] = {};
+    uint8_t resp[260] = {};
     size_t resp_len = 0;
     status_led_modbus_activity(STATUS_LED_MODBUS_WRITE);
     esp_err_t ret = bridge_rs485_transact(req, req_len, resp, sizeof(resp),
                                           &resp_len, KINCO_TIMEOUT_MS);
     if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Modbus FC06 fallo: reg=%u value=%u err=%s",
+                 (unsigned)(40001 + reg), (unsigned)value, esp_err_to_name(ret));
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ret;
     }
 
     if (!modbus_crc_ok(resp, resp_len)) {
+        ESP_LOGW(TAG, "Modbus FC06 CRC invalido: reg=%u resp_len=%u",
+                 (unsigned)(40001 + reg), (unsigned)resp_len);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_ERR_INVALID_CRC;
     }
 
     if (resp_len >= 5 && resp[0] == KINCO_SLAVE_ID && resp[1] == (0x06 | 0x80)) {
         if (exception_code) *exception_code = resp[2];
+        ESP_LOGW(TAG, "Modbus FC06 exception: reg=%u code=0x%02X",
+                 (unsigned)(40001 + reg), resp[2]);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_FAIL;
     }
 
     if (resp_len != req_len || memcmp(resp, req, req_len) != 0) {
+        ESP_LOGW(TAG, "Modbus FC06 respuesta invalida: reg=%u resp_len=%u",
+                 (unsigned)(40001 + reg), (unsigned)resp_len);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_ERR_INVALID_RESPONSE;
     }
 
+    ESP_LOGD(TAG, "Modbus FC06 OK: reg=%u value=%u",
+             (unsigned)(40001 + reg), (unsigned)value);
     return ESP_OK;
 }
 
@@ -254,23 +321,31 @@ static esp_err_t plc_read_holding_registers(uint16_t start_reg, uint16_t quantit
     };
     size_t req_len = modbus_append_crc(req, 6);
 
-    uint8_t resp[64] = {};
+    uint8_t resp[260] = {};
     size_t resp_len = 0;
     status_led_modbus_activity(STATUS_LED_MODBUS_READ);
     esp_err_t ret = bridge_rs485_transact(req, req_len, resp, sizeof(resp),
                                           &resp_len, KINCO_TIMEOUT_MS);
     if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Modbus FC03 fallo: reg=%u qty=%u err=%s",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity,
+                 esp_err_to_name(ret));
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ret;
     }
 
     if (!modbus_crc_ok(resp, resp_len)) {
+        ESP_LOGW(TAG, "Modbus FC03 CRC invalido: reg=%u qty=%u resp_len=%u",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity,
+                 (unsigned)resp_len);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_ERR_INVALID_CRC;
     }
 
     if (resp_len >= 5 && resp[0] == KINCO_SLAVE_ID && resp[1] == (0x03 | 0x80)) {
         if (exception_code) *exception_code = resp[2];
+        ESP_LOGW(TAG, "Modbus FC03 exception: reg=%u qty=%u code=0x%02X",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity, resp[2]);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_FAIL;
     }
@@ -278,6 +353,9 @@ static esp_err_t plc_read_holding_registers(uint16_t start_reg, uint16_t quantit
     size_t expected_len = 5 + (size_t)quantity * 2;
     if (resp_len != expected_len || resp[0] != KINCO_SLAVE_ID ||
         resp[1] != 0x03 || resp[2] != quantity * 2) {
+        ESP_LOGW(TAG, "Modbus FC03 respuesta invalida: reg=%u qty=%u resp_len=%u expected=%u",
+                 (unsigned)(40001 + start_reg), (unsigned)quantity,
+                 (unsigned)resp_len, (unsigned)expected_len);
         status_led_modbus_activity(STATUS_LED_MODBUS_ERROR);
         return ESP_ERR_INVALID_RESPONSE;
     }
@@ -327,6 +405,7 @@ static esp_err_t kinco_axis_write_control(int axis, uint16_t value,
                                           uint8_t *exception_code)
 {
     if (!kinco_valid_axis(axis)) return ESP_ERR_INVALID_ARG;
+    if (s_kinco_axis[axis].control == 0) return ESP_ERR_NOT_SUPPORTED;
     return plc_write_single_register(s_kinco_axis[axis].control, value, exception_code);
 }
 
@@ -340,36 +419,6 @@ static esp_err_t kinco_axis_pulse_control(int axis, uint16_t value,
     return kinco_axis_write_control(axis, KINCO_CMD_ENABLE, exception_code);
 }
 
-static esp_err_t kinco_axis_enable(int axis, bool enable, uint8_t *exception_code)
-{
-    return kinco_axis_write_control(axis, enable ? KINCO_CMD_ENABLE : 0x0000,
-                                    exception_code);
-}
-
-static esp_err_t kinco_axis_home(int axis, int direction, uint32_t maxf,
-                                 uint16_t minf, uint16_t time_ms,
-                                 uint8_t *exception_code)
-{
-    if (!kinco_valid_axis(axis)) return ESP_ERR_INVALID_ARG;
-
-    const kinco_axis_map_t *m = &s_kinco_axis[axis];
-    uint16_t maxf_words[2] = {};
-    kinco_u32_to_words(maxf, maxf_words);
-
-    esp_err_t ret = plc_write_single_register(m->home_mode, 1, exception_code);
-    if (ret != ESP_OK) return ret;
-    ret = plc_write_single_register(m->home_dir, direction ? 1 : 0, exception_code);
-    if (ret != ESP_OK) return ret;
-    ret = plc_write_single_register(m->home_minf, minf, exception_code);
-    if (ret != ESP_OK) return ret;
-    ret = plc_write_holding_registers(m->home_maxf, maxf_words, 2, exception_code);
-    if (ret != ESP_OK) return ret;
-    ret = plc_write_single_register(m->home_time, time_ms, exception_code);
-    if (ret != ESP_OK) return ret;
-
-    return kinco_axis_pulse_control(axis, KINCO_CMD_START_HOME, exception_code);
-}
-
 static esp_err_t kinco_axis_pabs(int axis, int32_t target, uint32_t maxf,
                                  uint16_t minf, uint16_t time_ms,
                                  uint8_t *exception_code)
@@ -378,6 +427,10 @@ static esp_err_t kinco_axis_pabs(int axis, int32_t target, uint32_t maxf,
 
     const kinco_axis_map_t *m = &s_kinco_axis[axis];
 
+    ESP_LOGD(TAG, "PABS start: axis=%d target=%ld maxf=%lu minf=%u time=%u",
+             axis, (long)target, (unsigned long)maxf,
+             (unsigned)minf, (unsigned)time_ms);
+
     uint16_t cfg_words[4] = {};
     kinco_u32_to_words(maxf, &cfg_words[0]);
     cfg_words[2] = minf;
@@ -385,56 +438,147 @@ static esp_err_t kinco_axis_pabs(int axis, int32_t target, uint32_t maxf,
 
     esp_err_t ret = plc_write_holding_registers(m->pabs_maxf, cfg_words, 4,
                                                 exception_code);
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "PABS fallo escribiendo parametros: err=%s exception=0x%02X",
+                 esp_err_to_name(ret), exception_code ? *exception_code : 0);
+        return ret;
+    }
 
     uint16_t target_words[2] = {};
     kinco_u32_to_words((uint32_t)target, target_words);
-    return plc_write_holding_registers(m->pabs_pos, target_words, 2,
-                                       exception_code);
+    ret = plc_write_holding_registers(m->pabs_pos, target_words, 2,
+                                      exception_code);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "PABS fallo escribiendo target: err=%s exception=0x%02X",
+                 esp_err_to_name(ret), exception_code ? *exception_code : 0);
+        return ret;
+    }
+
+    /* Si el programa PLC tiene palabra de control (control != 0),
+     * pulsar el bit de StartPABS. Si no (ej. Kinco_esp_Modbus_test_2),
+     * el propio write a pabs_pos dispara el ciclo automaticamente. */
+    if (m->control != 0) {
+        ret = kinco_axis_pulse_control(axis, KINCO_CMD_START_PABS, exception_code);
+    }
+    ESP_LOGD(TAG, "PABS comando enviado: axis=%d target=%ld result=%s exception=0x%02X",
+             axis, (long)target, esp_err_to_name(ret),
+             exception_code ? *exception_code : 0);
+    return ret;
 }
 
-static esp_err_t __attribute__((unused)) kinco_axis_prel(int axis, int32_t delta,
-                                                         uint32_t maxf,
-                                                         uint16_t minf,
-                                                         uint16_t time_ms,
-                                                         uint8_t *exception_code)
+static esp_err_t kinco_axis_prel(int axis, int32_t delta, uint32_t maxf,
+                                 uint16_t minf, uint16_t time_ms,
+                                 uint8_t *exception_code)
 {
     if (!kinco_valid_axis(axis)) return ESP_ERR_INVALID_ARG;
 
-    uint16_t words[6] = {};
-    kinco_u32_to_words((uint32_t)delta, &words[0]);
-    kinco_u32_to_words(maxf, &words[2]);
-    words[4] = minf;
-    words[5] = time_ms;
+    const kinco_axis_map_t *m = &s_kinco_axis[axis];
+    if (m->prel_dist == 0) return ESP_ERR_NOT_SUPPORTED;
 
-    esp_err_t ret = plc_write_holding_registers(s_kinco_axis[axis].prel_dist,
-                                                words, 6, exception_code);
-    if (ret != ESP_OK) return ret;
+    ESP_LOGD(TAG, "PREL start: axis=%d delta=%ld maxf=%lu minf=%u time=%u",
+             axis, (long)delta, (unsigned long)maxf,
+             (unsigned)minf, (unsigned)time_ms);
 
-    return kinco_axis_pulse_control(axis, KINCO_CMD_START_PREL, exception_code);
+    uint16_t cfg_words[4] = {};
+    kinco_u32_to_words(maxf, &cfg_words[0]);
+    cfg_words[2] = minf;
+    cfg_words[3] = time_ms;
+
+    esp_err_t ret = plc_write_holding_registers(m->prel_maxf, cfg_words, 4,
+                                                exception_code);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "PREL fallo escribiendo parametros: err=%s exception=0x%02X",
+                 esp_err_to_name(ret), exception_code ? *exception_code : 0);
+        return ret;
+    }
+
+    uint16_t delta_words[2] = {};
+    kinco_u32_to_words((uint32_t)delta, delta_words);
+    ret = plc_write_holding_registers(m->prel_dist, delta_words, 2,
+                                      exception_code);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "PREL fallo escribiendo delta: err=%s exception=0x%02X",
+                 esp_err_to_name(ret), exception_code ? *exception_code : 0);
+        return ret;
+    }
+
+    if (m->control != 0) {
+        ret = kinco_axis_pulse_control(axis, KINCO_CMD_START_PREL, exception_code);
+    }
+    ESP_LOGD(TAG, "PREL comando enviado: axis=%d delta=%ld result=%s exception=0x%02X",
+             axis, (long)delta, esp_err_to_name(ret),
+             exception_code ? *exception_code : 0);
+    return ret;
 }
 
-static esp_err_t __attribute__((unused)) kinco_axis_jog(int axis, int32_t speed_hz,
-                                                        uint8_t *exception_code)
+static esp_err_t kinco_axis_home(int axis, uint16_t dir, uint16_t mode,
+                                 uint32_t maxf, uint16_t minf,
+                                 uint16_t time_ms, uint8_t *exception_code)
+{
+    if (!kinco_valid_axis(axis)) return ESP_ERR_INVALID_ARG;
+
+    const kinco_axis_map_t *m = &s_kinco_axis[axis];
+    if (m->home_cmd == 0) {
+        return kinco_axis_pulse_control(axis, KINCO_CMD_START_HOME, exception_code);
+    }
+
+    dir = dir ? 1 : 0;
+    mode = mode ? 1 : 0;
+
+    ESP_LOGD(TAG, "HOME start: axis=%d dir=%u mode=%u maxf=%lu minf=%u time=%u",
+             axis, (unsigned)dir, (unsigned)mode, (unsigned long)maxf,
+             (unsigned)minf, (unsigned)time_ms);
+
+    uint16_t cfg_words[6] = {};
+    cfg_words[0] = mode;
+    cfg_words[1] = dir;
+    cfg_words[2] = minf;
+    kinco_u32_to_words(maxf, &cfg_words[3]);
+    cfg_words[5] = time_ms;
+
+    esp_err_t ret = plc_write_holding_registers(m->home_mode, cfg_words, 6,
+                                                exception_code);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "HOME fallo escribiendo parametros: err=%s exception=0x%02X",
+                 esp_err_to_name(ret), exception_code ? *exception_code : 0);
+        return ret;
+    }
+
+    ret = plc_write_single_register(m->home_cmd, 1, exception_code);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "HOME fallo escribiendo comando: err=%s exception=0x%02X",
+                 esp_err_to_name(ret), exception_code ? *exception_code : 0);
+        return ret;
+    }
+
+    ESP_LOGD(TAG, "HOME comando enviado: axis=%d dir=%u result=%s exception=0x%02X",
+             axis, (unsigned)dir, esp_err_to_name(ret),
+             exception_code ? *exception_code : 0);
+    return ret;
+}
+
+static esp_err_t kinco_axis_jog(int axis, int32_t speed_hz,
+                                uint8_t *exception_code)
 {
     if (!kinco_valid_axis(axis)) return ESP_ERR_INVALID_ARG;
     if (speed_hz == 0) {
-        return kinco_axis_pulse_control(axis, KINCO_CMD_STOP, exception_code);
+        return plc_write_single_register(s_kinco_axis[axis].jog_cmd, 0,
+                                         exception_code);
     }
 
     uint32_t abs_speed = (speed_hz < 0) ? (uint32_t)(-speed_hz) : (uint32_t)speed_hz;
     if (abs_speed < KINCO_MIN_FREQ) abs_speed = KINCO_MIN_FREQ;
     if (abs_speed > KINCO_MAX_FREQ) abs_speed = KINCO_MAX_FREQ;
 
-    uint16_t words[2] = {};
-    kinco_u32_to_words(abs_speed, words);
-    esp_err_t ret = plc_write_holding_registers(s_kinco_axis[axis].pjog_speed,
-                                                words, 2, exception_code);
+    uint16_t cfg[3] = {};
+    cfg[0] = speed_hz > 0 ? 0 : 1;
+    kinco_u32_to_words(abs_speed, &cfg[1]);
+    esp_err_t ret = plc_write_holding_registers(s_kinco_axis[axis].jog_dir,
+                                                cfg, 3, exception_code);
     if (ret != ESP_OK) return ret;
 
-    return kinco_axis_write_control(axis,
-                                    speed_hz > 0 ? KINCO_CMD_JOG_FWD : KINCO_CMD_JOG_BWD,
-                                    exception_code);
+    return plc_write_single_register(s_kinco_axis[axis].jog_cmd,
+                                     speed_hz > 0 ? 1 : 2, exception_code);
 }
 
 static esp_err_t kinco_axis_read_status(int axis, kinco_axis_status_t *status)
@@ -443,48 +587,214 @@ static esp_err_t kinco_axis_read_status(int axis, kinco_axis_status_t *status)
 
     const kinco_axis_map_t *m = &s_kinco_axis[axis];
     uint8_t exception_code = 0;
+    esp_err_t ret;
 
-    uint16_t command_regs[2] = {};
-    esp_err_t ret = plc_read_holding_registers(m->pabs_pos, 2, command_regs,
-                                               &exception_code);
+    /* Leer palabra de control si el programa PLC la tiene mapeada (control != 0).
+     * Para programas sin palabra de control (ej. MAIN_MAIN.ilp) se omite
+     * porque la direccion 0 no es valida en el mapeo MODBUS de la Kinco. */
+    if (m->control != 0) {
+        uint16_t ctrl_buf[1] = {};
+        ret = plc_read_holding_registers(m->control, 1, ctrl_buf,
+                                         &exception_code);
+        if (ret != ESP_OK) {
+            status->ok = false;
+            status->exception = exception_code;
+            return ret;
+        }
+        status->control_word = ctrl_buf[0];
+    } else {
+        status->control_word = 0;
+    }
+
+    /* Leer posición objetivo PABS desde 40151-40152 (%VD100). */
+    uint16_t cfg_regs[6] = {};
+    ret = plc_read_holding_registers(m->pabs_pos, 6, cfg_regs, &exception_code);
     if (ret != ESP_OK) {
         status->ok = false;
         status->exception = exception_code;
+        ESP_LOGW(TAG, "Status fallo leyendo parametros %u..%u: err=%s exception=0x%02X",
+                 (unsigned)(40001 + m->pabs_pos), (unsigned)(40001 + m->pabs_pos + 5),
+                 esp_err_to_name(ret), exception_code);
         return ret;
     }
-    status->command_steps = kinco_words_to_int32(command_regs[0], command_regs[1]);
-    status->control_word = command_regs[0];
 
-    uint16_t cfg_regs[4] = {};
-    ret = plc_read_holding_registers(m->pabs_maxf, 4, cfg_regs, &exception_code);
-    if (ret != ESP_OK) {
-        status->ok = false;
-        status->exception = exception_code;
-        return ret;
-    }
-    status->maxf = ((uint32_t)cfg_regs[1] << 16) | cfg_regs[0];
-    status->minf = cfg_regs[2];
-    status->time_ms = cfg_regs[3];
-    status->home_dir = 0;
+    status->command_steps = kinco_words_to_int32(cfg_regs[0], cfg_regs[1]);
+    status->maxf = ((uint32_t)cfg_regs[3] << 16) | cfg_regs[2];
+    status->minf = cfg_regs[4];
+    status->time_ms = cfg_regs[5];
 
-    uint16_t state_regs[3] = {};
-    ret = plc_read_holding_registers(m->status, 3, state_regs, &exception_code);
-    if (ret != ESP_OK) {
-        status->ok = false;
-        status->exception = exception_code;
-        return ret;
+    status->home_cmd = 0;
+    status->home_mode = KINCO_DEFAULT_HOME_MODE;
+    status->home_dir = KINCO_DEFAULT_HOME_DIR;
+    status->home_minf = KINCO_DEFAULT_HOME_MINF;
+    status->home_maxf = KINCO_DEFAULT_HOME_MAXF;
+    status->home_time_ms = KINCO_DEFAULT_HOME_TIME;
+    if (m->home_cmd != 0) {
+        uint16_t home_regs[7] = {};
+        ret = plc_read_holding_registers(m->home_cmd, 7, home_regs, &exception_code);
+        if (ret != ESP_OK) {
+            status->ok = false;
+            status->exception = exception_code;
+            ESP_LOGW(TAG, "Status fallo leyendo HOME %u..%u: err=%s exception=0x%02X",
+                     (unsigned)(40001 + m->home_cmd),
+                     (unsigned)(40001 + m->home_cmd + 6),
+                     esp_err_to_name(ret), exception_code);
+            return ret;
+        }
+        status->home_cmd = home_regs[0];
+        status->home_mode = home_regs[1];
+        status->home_dir = home_regs[2];
+        status->home_minf = home_regs[3];
+        status->home_maxf = ((uint32_t)home_regs[5] << 16) | home_regs[4];
+        status->home_time_ms = home_regs[6];
     }
-    status->status_word = state_regs[0];
-    status->status_word2 = state_regs[1];
-    status->status_word3 = state_regs[2];
+
+    status->rel_steps = 0;
+    status->prel_maxf = 0;
+    status->prel_minf = 0;
+    status->prel_time_ms = 0;
+    if (m->prel_dist != 0) {
+        uint16_t rel_regs[6] = {};
+        ret = plc_read_holding_registers(m->prel_dist, 6, rel_regs, &exception_code);
+        if (ret != ESP_OK) {
+            status->ok = false;
+            status->exception = exception_code;
+            ESP_LOGW(TAG, "Status fallo leyendo PREL %u..%u: err=%s exception=0x%02X",
+                     (unsigned)(40001 + m->prel_dist), (unsigned)(40001 + m->prel_dist + 5),
+                     esp_err_to_name(ret), exception_code);
+            return ret;
+        }
+        status->rel_steps = kinco_words_to_int32(rel_regs[0], rel_regs[1]);
+        status->prel_maxf = ((uint32_t)rel_regs[3] << 16) | rel_regs[2];
+        status->prel_minf = rel_regs[4];
+        status->prel_time_ms = rel_regs[5];
+    }
+
+    status->jog_cmd = 0;
+    status->jog_dir = 0;
+    status->jog_speed = KINCO_DEFAULT_JOG_SPEED;
+    if (m->jog_cmd != 0) {
+        uint16_t jog_regs[4] = {};
+        ret = plc_read_holding_registers(m->jog_cmd, 4, jog_regs, &exception_code);
+        if (ret != ESP_OK) {
+            status->ok = false;
+            status->exception = exception_code;
+            ESP_LOGW(TAG, "Status fallo leyendo JOG %u..%u: err=%s exception=0x%02X",
+                     (unsigned)(40001 + m->jog_cmd),
+                     (unsigned)(40001 + m->jog_cmd + 3),
+                     esp_err_to_name(ret), exception_code);
+            return ret;
+        }
+        status->jog_cmd = jog_regs[0];
+        status->jog_dir = jog_regs[1];
+        status->jog_speed = ((uint32_t)jog_regs[3] << 16) | jog_regs[2];
+    }
 
     uint16_t pos_regs[2] = {};
     ret = plc_read_holding_registers(m->position, 2, pos_regs, &exception_code);
+    if (ret != ESP_OK) {
+        status->ok = false;
+        status->exception = exception_code;
+        ESP_LOGW(TAG, "Status fallo leyendo posicion %u..%u: err=%s exception=0x%02X",
+                 (unsigned)(40001 + m->position), (unsigned)(40001 + m->position + 1),
+                 esp_err_to_name(ret), exception_code);
+        return ret;
+    }
+    status->position = kinco_words_to_int32(pos_regs[0], pos_regs[1]);
+
+    uint16_t status_regs[7] = {};
+    ret = plc_read_holding_registers(m->status, 7, status_regs, &exception_code);
     status->ok = (ret == ESP_OK);
     status->exception = exception_code;
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Status fallo leyendo estado %u..%u: err=%s exception=0x%02X",
+                 (unsigned)(40001 + m->status), (unsigned)(40001 + m->status + 6),
+                 esp_err_to_name(ret), exception_code);
+        return ret;
+    }
+    status->status_word = status_regs[0];
+    status->status_word2 = status_regs[1];
+    status->status_word3 = status_regs[2];
+    status->home_status_word = status_regs[3];
+    status->home_error_word = status_regs[4];
+    status->jog_status_word = status_regs[5];
+    status->jog_error_word = status_regs[6];
+    ESP_LOGD(TAG,
+             "PLC status: cmd=%ld pos=%ld maxf=%lu minf=%u time=%u "
+             "home_cmd=%u home_dir=%u jog_cmd=%u jog_dir=%u jog_speed=%lu "
+             "40252=0x%04X 40253=0x%04X(err=%u) "
+             "40254=0x%04X 40255=0x%04X 40256=0x%04X(home_err=%u) "
+             "40257=0x%04X 40258=0x%04X(jog_err=%u) "
+             "active=%u out=%u wait=%u ret=%u done=%u cyc_err=%u out_err=%u ret_err=%u en_log=%u alive=%u",
+             (long)status->command_steps, (long)status->position,
+             (unsigned long)status->maxf, (unsigned)status->minf,
+             (unsigned)status->time_ms,
+             (unsigned)status->home_cmd, (unsigned)status->home_dir,
+             (unsigned)status->jog_cmd, (unsigned)status->jog_dir,
+             (unsigned long)status->jog_speed,
+             (unsigned)status->status_word,
+             (unsigned)status->status_word2,
+             (unsigned)(status->status_word2 & 0x00FF),
+             (unsigned)status->status_word3,
+             (unsigned)status->home_status_word,
+             (unsigned)status->home_error_word,
+             (unsigned)(status->home_error_word & 0x00FF),
+             (unsigned)status->jog_status_word,
+             (unsigned)status->jog_error_word,
+             (unsigned)(status->jog_error_word & 0x00FF),
+             (unsigned)((status->status_word >> 0) & 1),
+             (unsigned)((status->status_word >> 1) & 1),
+             (unsigned)((status->status_word >> 2) & 1),
+             (unsigned)((status->status_word >> 3) & 1),
+             (unsigned)((status->status_word >> 4) & 1),
+             (unsigned)((status->status_word >> 5) & 1),
+             (unsigned)((status->status_word >> 7) & 1),
+             (unsigned)((status->status_word >> 9) & 1),
+             (unsigned)((status->status_word >> 10) & 1),
+             (unsigned)((status->status_word >> 15) & 1));
+    return ESP_OK;
+}
 
+static esp_err_t kinco_axis_read_fast_status(int axis, kinco_axis_status_t *status)
+{
+    if (!kinco_valid_axis(axis) || !status) return ESP_ERR_INVALID_ARG;
+    memset(status, 0, sizeof(*status));
+
+    const kinco_axis_map_t *m = &s_kinco_axis[axis];
+    uint8_t exception_code = 0;
+
+    uint16_t status_regs[7] = {};
+    esp_err_t ret = plc_read_holding_registers(m->status, 7, status_regs,
+                                               &exception_code);
+    status->exception = exception_code;
+    if (ret != ESP_OK) {
+        status->ok = false;
+        ESP_LOGW(TAG, "Fast status fallo leyendo estado %u..%u: err=%s exception=0x%02X",
+                 (unsigned)(40001 + m->status), (unsigned)(40001 + m->status + 6),
+                 esp_err_to_name(ret), exception_code);
+        return ret;
+    }
+
+    uint16_t pos_regs[2] = {};
+    ret = plc_read_holding_registers(m->position, 2, pos_regs, &exception_code);
+    status->exception = exception_code;
+    if (ret != ESP_OK) {
+        status->ok = false;
+        ESP_LOGW(TAG, "Fast status fallo leyendo posicion %u..%u: err=%s exception=0x%02X",
+                 (unsigned)(40001 + m->position), (unsigned)(40001 + m->position + 1),
+                 esp_err_to_name(ret), exception_code);
+        return ret;
+    }
+
+    status->status_word = status_regs[0];
+    status->status_word2 = status_regs[1];
+    status->status_word3 = status_regs[2];
+    status->home_status_word = status_regs[3];
+    status->home_error_word = status_regs[4];
+    status->jog_status_word = status_regs[5];
+    status->jog_error_word = status_regs[6];
     status->position = kinco_words_to_int32(pos_regs[0], pos_regs[1]);
+    status->ok = true;
     return ESP_OK;
 }
 
@@ -549,35 +859,193 @@ static void kinco_status_response(char *resp, size_t resp_sz, const char *cmd)
     bool pabs_return_err = (st.status_word >> 9) & 1;
     bool enable_out = (st.status_word >> 10) & 1;
     bool wait_done = (st.status_word >> 11) & 1;
+    bool prel_active = (st.status_word >> 12) & 1;
+    bool prel_done = (st.status_word >> 13) & 1;
+    bool prel_err = (st.status_word >> 14) & 1;
+    bool plc_alive = (st.status_word >> 15) & 1;
+    bool home_active = (st.home_status_word >> 0) & 1;
+    bool home_done = (st.home_status_word >> 1) & 1;
+    bool home_err = (st.home_status_word >> 2) & 1;
+    bool home_sensor = (st.home_status_word >> 3) & 1;
+    bool home_dir_bit = (st.home_status_word >> 4) & 1;
+    bool home_reset_pulse = (st.home_status_word >> 5) & 1;
+    bool jog_active = (st.jog_status_word >> 0) & 1;
+    bool jog_done = (st.jog_status_word >> 1) & 1;
+    bool jog_err = (st.jog_status_word >> 2) & 1;
+    bool jog_dir_bit = (st.jog_status_word >> 3) & 1;
+    bool jog_fwd_input = (st.jog_status_word >> 4) & 1;
+    bool jog_bwd_input = (st.jog_status_word >> 5) & 1;
+    bool jog_cmd_active = (st.jog_status_word >> 6) & 1;
+    bool jog_stop_err = (st.jog_status_word >> 7) & 1;
+    uint16_t error_out = st.status_word2 & 0x00FF;
+    uint16_t error_return = st.status_word3 & 0x00FF;
+    uint16_t debug_return = (st.status_word3 >> 8) & 0x00FF;
+    uint16_t error_home = st.home_error_word & 0x00FF;
+    uint16_t error_jog = st.jog_error_word & 0x00FF;
+    uint16_t error_jog_stop = (st.jog_error_word >> 8) & 0x00FF;
 
     snprintf(resp, resp_sz,
              "{\"result\":\"%s\",\"cmd\":\"%s\",\"target\":\"kinco\",\"slave\":%u,"
-             "\"program\":\"pabs_basico_5000\","
-             "\"command_reg\":40051,\"maxf_reg\":40053,\"minf_reg\":40055,"
-             "\"time_reg\":40056,\"status_reg\":40152,\"position_reg\":40101,"
-             "\"error_out_reg\":40153,\"error_return_reg\":40154,"
+             "\"program\":\"" KINCO_PROGRAM_NAME "\","
+             "\"control_reg\":0,\"command_reg\":40151,\"maxf_reg\":40153,\"minf_reg\":40155,"
+             "\"time_reg\":40156,\"home_cmd_reg\":40157,\"home_mode_reg\":40158,"
+             "\"home_dir_reg\":40159,\"home_minf_reg\":40160,\"home_maxf_reg\":40161,"
+             "\"home_time_reg\":40163,\"rel_reg\":40167,\"prel_maxf_reg\":40169,"
+             "\"prel_minf_reg\":40171,\"prel_time_reg\":40172,"
+             "\"jog_cmd_reg\":40175,\"jog_dir_reg\":40176,\"jog_speed_reg\":40177,"
+             "\"status_reg\":40252,\"home_status_reg\":40255,\"jog_status_reg\":40257,"
+             "\"position_reg\":40201,"
+             "\"error_out_reg\":40253,\"error_return_reg\":40254,"
+             "\"error_home_reg\":40256,\"error_jog_reg\":40258,"
              "\"motor\":{\"ok\":%s,\"err\":\"%s\",\"exception\":%u,"
              "\"command_steps\":%ld,\"pos\":%ld,\"maxf\":%lu,\"minf\":%u,"
-             "\"time\":%u,\"status\":%u,\"status2\":%u,\"status3\":%u,"
-             "\"error_out\":%u,\"error_return\":%u,"
+             "\"time\":%u,\"rel_steps\":%ld,\"prel_maxf\":%lu,"
+             "\"prel_minf\":%u,\"prel_time\":%u,"
+             "\"home_cmd\":%u,\"home_mode\":%u,\"home_dir\":%u,"
+             "\"home_maxf\":%lu,\"home_minf\":%u,\"home_time\":%u,"
+             "\"jog_cmd\":%u,\"jog_dir\":%u,\"jog_speed\":%lu,"
+             "\"status\":%u,\"status2\":%u,\"status3\":%u,"
+             "\"home_status\":%u,\"home_error_word\":%u,"
+             "\"jog_status\":%u,\"jog_error_word\":%u,"
+             "\"error_out\":%u,\"error_return\":%u,\"debug_return\":%u,"
+             "\"error_home\":%u,\"error_jog\":%u,"
              "\"cycle_active\":%u,\"move_out_active\":%u,"
              "\"wait_return_active\":%u,\"return_active\":%u,"
              "\"cycle_done\":%u,\"cycle_err\":%u,"
              "\"pabs_out_done\":%u,\"pabs_out_err\":%u,"
              "\"pabs_return_done\":%u,\"pabs_return_err\":%u,"
-             "\"enable_out\":%u,\"wait_done\":%u}}",
+             "\"enable_out\":%u,\"wait_done\":%u,"
+             "\"prel_active\":%u,\"prel_done\":%u,\"prel_err\":%u,"
+             "\"home_active\":%u,\"home_done\":%u,\"home_err\":%u,"
+             "\"home_sensor\":%u,\"home_dir_bit\":%u,\"home_reset_pulse\":%u,"
+             "\"jog_active\":%u,\"jog_done\":%u,\"jog_err\":%u,"
+             "\"jog_dir_bit\":%u,\"jog_fwd_input\":%u,\"jog_bwd_input\":%u,"
+             "\"jog_cmd_active\":%u,\"jog_stop_err\":%u,"
+             "\"error_jog_stop\":%u,"
+             "\"plc_alive\":%u}}",
              ok ? "ok" : "error", cmd, KINCO_SLAVE_ID,
              st.ok ? "true" : "false", esp_err_to_name(ret), st.exception,
              (long)st.command_steps, (long)st.position,
              (unsigned long)st.maxf, st.minf, st.time_ms,
+             (long)st.rel_steps, (unsigned long)st.prel_maxf,
+             st.prel_minf, st.prel_time_ms,
+             st.home_cmd, st.home_mode, st.home_dir,
+             (unsigned long)st.home_maxf, st.home_minf, st.home_time_ms,
+             st.jog_cmd, st.jog_dir, (unsigned long)st.jog_speed,
              st.status_word, st.status_word2, st.status_word3,
-             st.status_word2, st.status_word3,
+             st.home_status_word, st.home_error_word,
+             st.jog_status_word, st.jog_error_word,
+             error_out, error_return, debug_return, error_home, error_jog,
              cycle_active, move_out_active, wait_return_active, return_active,
              cycle_done, cycle_err, pabs_out_done, pabs_out_err,
-             pabs_return_done, pabs_return_err, enable_out, wait_done);
+             pabs_return_done, pabs_return_err, enable_out, wait_done,
+             prel_active, prel_done, prel_err,
+             home_active, home_done, home_err,
+             home_sensor, home_dir_bit, home_reset_pulse,
+             jog_active, jog_done, jog_err, jog_dir_bit,
+             jog_fwd_input, jog_bwd_input, jog_cmd_active,
+             jog_stop_err, error_jog_stop,
+             plc_alive);
 }
 
 /* ── Helper: actualiza LED según estado del motor ──────────────── */
+static void kinco_fast_status_response(char *resp, size_t resp_sz, const char *cmd)
+{
+    kinco_axis_status_t st = {};
+    esp_err_t ret = kinco_axis_read_fast_status(0, &st);
+    update_led_from_status(&st);
+    bool ok = (ret == ESP_OK);
+    bool cycle_active = (st.status_word >> 0) & 1;
+    bool move_out_active = (st.status_word >> 1) & 1;
+    bool wait_return_active = (st.status_word >> 2) & 1;
+    bool return_active = (st.status_word >> 3) & 1;
+    bool cycle_done = (st.status_word >> 4) & 1;
+    bool cycle_err = (st.status_word >> 5) & 1;
+    bool pabs_out_done = (st.status_word >> 6) & 1;
+    bool pabs_out_err = (st.status_word >> 7) & 1;
+    bool pabs_return_done = (st.status_word >> 8) & 1;
+    bool pabs_return_err = (st.status_word >> 9) & 1;
+    bool enable_out = (st.status_word >> 10) & 1;
+    bool wait_done = (st.status_word >> 11) & 1;
+    bool prel_active = (st.status_word >> 12) & 1;
+    bool prel_done = (st.status_word >> 13) & 1;
+    bool prel_err = (st.status_word >> 14) & 1;
+    bool plc_alive = (st.status_word >> 15) & 1;
+    bool home_active = (st.home_status_word >> 0) & 1;
+    bool home_done = (st.home_status_word >> 1) & 1;
+    bool home_err = (st.home_status_word >> 2) & 1;
+    bool home_sensor = (st.home_status_word >> 3) & 1;
+    bool home_dir_bit = (st.home_status_word >> 4) & 1;
+    bool home_reset_pulse = (st.home_status_word >> 5) & 1;
+    bool jog_active = (st.jog_status_word >> 0) & 1;
+    bool jog_done = (st.jog_status_word >> 1) & 1;
+    bool jog_err = (st.jog_status_word >> 2) & 1;
+    bool jog_dir_bit = (st.jog_status_word >> 3) & 1;
+    bool jog_fwd_input = (st.jog_status_word >> 4) & 1;
+    bool jog_bwd_input = (st.jog_status_word >> 5) & 1;
+    bool jog_cmd_active = (st.jog_status_word >> 6) & 1;
+    bool jog_stop_err = (st.jog_status_word >> 7) & 1;
+    uint16_t error_out = st.status_word2 & 0x00FF;
+    uint16_t error_return = st.status_word3 & 0x00FF;
+    uint16_t debug_return = (st.status_word3 >> 8) & 0x00FF;
+    uint16_t error_home = st.home_error_word & 0x00FF;
+    uint16_t error_jog = st.jog_error_word & 0x00FF;
+    uint16_t error_jog_stop = (st.jog_error_word >> 8) & 0x00FF;
+
+    snprintf(resp, resp_sz,
+             "{\"result\":\"%s\",\"cmd\":\"%s\",\"target\":\"kinco\",\"slave\":%u,"
+             "\"program\":\"" KINCO_PROGRAM_NAME "\",\"fast\":true,"
+             "\"status_reg\":40252,\"home_status_reg\":40255,"
+             "\"jog_status_reg\":40257,\"position_reg\":40201,"
+             "\"motor\":{\"ok\":%s,\"err\":\"%s\",\"exception\":%u,"
+             "\"pos\":%ld,\"status\":%u,\"status2\":%u,\"status3\":%u,"
+             "\"home_status\":%u,\"home_error_word\":%u,"
+             "\"jog_status\":%u,\"jog_error_word\":%u,"
+             "\"error_out\":%u,\"error_return\":%u,\"debug_return\":%u,"
+             "\"error_home\":%u,\"error_jog\":%u,\"error_jog_stop\":%u,"
+             "\"cycle_active\":%u,\"move_out_active\":%u,"
+             "\"wait_return_active\":%u,\"return_active\":%u,"
+             "\"cycle_done\":%u,\"cycle_err\":%u,"
+             "\"pabs_out_done\":%u,\"pabs_out_err\":%u,"
+             "\"pabs_return_done\":%u,\"pabs_return_err\":%u,"
+             "\"enable_out\":%u,\"wait_done\":%u,"
+             "\"prel_active\":%u,\"prel_done\":%u,\"prel_err\":%u,"
+             "\"home_active\":%u,\"home_done\":%u,\"home_err\":%u,"
+             "\"home_sensor\":%u,\"home_dir_bit\":%u,\"home_reset_pulse\":%u,"
+             "\"jog_active\":%u,\"jog_done\":%u,\"jog_err\":%u,"
+             "\"jog_dir_bit\":%u,\"jog_fwd_input\":%u,\"jog_bwd_input\":%u,"
+             "\"jog_cmd_active\":%u,\"jog_stop_err\":%u,"
+             "\"plc_alive\":%u}}",
+             ok ? "ok" : "error", cmd, KINCO_SLAVE_ID,
+             st.ok ? "true" : "false", esp_err_to_name(ret), st.exception,
+             (long)st.position, st.status_word, st.status_word2, st.status_word3,
+             st.home_status_word, st.home_error_word,
+             st.jog_status_word, st.jog_error_word,
+             error_out, error_return, debug_return,
+             error_home, error_jog, error_jog_stop,
+             cycle_active, move_out_active, wait_return_active, return_active,
+             cycle_done, cycle_err, pabs_out_done, pabs_out_err,
+             pabs_return_done, pabs_return_err, enable_out, wait_done,
+             prel_active, prel_done, prel_err,
+             home_active, home_done, home_err,
+             home_sensor, home_dir_bit, home_reset_pulse,
+             jog_active, jog_done, jog_err, jog_dir_bit,
+             jog_fwd_input, jog_bwd_input, jog_cmd_active, jog_stop_err,
+             plc_alive);
+}
+
+static bool kinco_status_cycle_busy(const kinco_axis_status_t *st)
+{
+    return st && st->ok &&
+           (((st->status_word & KINCO_CYCLE_BUSY_MASK) != 0) ||
+            st->command_steps != 0 ||
+            st->rel_steps != 0 ||
+            st->home_cmd != 0 ||
+            st->jog_cmd != 0 ||
+            ((st->home_status_word & 0x0001) != 0) ||
+            ((st->jog_status_word & 0x0001) != 0));
+}
+
 static void update_led_from_status(const kinco_axis_status_t *st)
 {
     if (!st) return;
@@ -592,10 +1060,19 @@ static void update_led_from_status(const kinco_axis_status_t *st)
     bool cycle_err = (st->status_word >> 5) & 1;
     bool pabs_out_err = (st->status_word >> 7) & 1;
     bool pabs_return_err = (st->status_word >> 9) & 1;
+    bool prel_active = (st->status_word >> 12) & 1;
+    bool prel_err = (st->status_word >> 14) & 1;
+    bool home_active = (st->home_status_word >> 0) & 1;
+    bool home_err = (st->home_status_word >> 2) & 1;
+    bool jog_active = (st->jog_status_word >> 0) & 1;
+    bool jog_err = (st->jog_status_word >> 2) & 1;
+    bool jog_stop_err = (st->jog_status_word >> 7) & 1;
 
-    if (cycle_err || pabs_out_err || pabs_return_err || !st->ok) {
+    if (cycle_err || pabs_out_err || pabs_return_err || prel_err || home_err ||
+        jog_err || jog_stop_err || !st->ok) {
         status_led_set_state(STATUS_LED_STATE_ERROR);
-    } else if (cycle_active || move_out_active || wait_return_active || return_active) {
+    } else if (cycle_active || move_out_active || wait_return_active || return_active ||
+               prel_active || home_active || jog_active) {
         status_led_set_state(STATUS_LED_STATE_MOTOR_MOVING);
     } else {
         status_led_set_state(STATUS_LED_STATE_SYSTEM_READY);
@@ -656,9 +1133,8 @@ static auto_cycle_state_t s_auto_cycle = {};
 static portMUX_TYPE s_auto_cycle_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_auto_cycle_task = nullptr;
 
-/* Espera PabsDone (bit3) o PabsErr (bit4) con timeout. Devuelve ESP_OK al
- * completar, ESP_FAIL ante PabsErr (rellena exception), ESP_ERR_TIMEOUT si
- * vence el plazo. `final_pos` recibe la posición al completar. */
+/* Espera CycleDone (bit4) o CycleErr (bit5) con timeout.
+ * En MAIN_MAIN.ilp la PLC hace el ciclo completo (ida → 3s → vuelta a 0). */
 static esp_err_t auto_cycle_wait_done(int axis, int timeout_ms,
                                       int32_t *final_pos, uint8_t *exception)
 {
@@ -666,12 +1142,21 @@ static esp_err_t auto_cycle_wait_done(int axis, int timeout_ms,
         vTaskDelay(pdMS_TO_TICKS(250));
         timeout_ms -= 250;
         kinco_axis_status_t cur = {};
-        if (kinco_axis_read_status(axis, &cur) == ESP_OK) {
-            if (cur.status_word & (1u << 3)) {  /* PabsDone */
+        if (kinco_axis_read_fast_status(axis, &cur) == ESP_OK) {
+            /* Reflejar fase en el estado compartido para la UI. */
+            bool move_out = (cur.status_word >> 1) & 1;
+            bool wait_ret = (cur.status_word >> 2) & 1;
+            bool returning = (cur.status_word >> 3) & 1;
+            portENTER_CRITICAL(&s_auto_cycle_mux);
+            if (returning || wait_ret) s_auto_cycle.phase = CYCLE_PHASE_CCW;
+            else if (move_out)          s_auto_cycle.phase = CYCLE_PHASE_CW;
+            portEXIT_CRITICAL(&s_auto_cycle_mux);
+
+            if (cur.status_word & (1u << 4)) {  /* CycleDone */
                 if (final_pos) *final_pos = cur.position;
                 return ESP_OK;
             }
-            if (cur.status_word & (1u << 4)) {  /* PabsErr */
+            if (cur.status_word & (1u << 5)) {  /* CycleErr */
                 if (exception) *exception = cur.exception;
                 return ESP_FAIL;
             }
@@ -686,48 +1171,33 @@ static void auto_cycle_task(void *arg)
     free(arg);
 
     uint8_t exception_code = 0;
-    esp_err_t r = ESP_OK;
-    bool cw_ok = false, ccw_ok = false;
-    int32_t pos_after_cw = 0, pos_final = 0;
+    int32_t pos_final = 0;
 
     status_led_set_state(STATUS_LED_STATE_MOTOR_MOVING);
 
-    /* Fase 1: mover a CW target */
-    r = kinco_axis_pabs(p.axis, p.cw_target, p.fwd_speed, KINCO_DEFAULT_PABS_MINF,
-                        KINCO_DEFAULT_PABS_TIME, &exception_code);
+    /* En MAIN_MAIN.ilp, escribir un target ≠ 0 en 40151-40152 dispara
+     * el ciclo completo: ida al target → espera 3 s → vuelta a 0.
+     * Solo necesitamos una llamada a kinco_axis_pabs. */
+    esp_err_t r = kinco_axis_pabs(p.axis, p.cw_target, p.fwd_speed,
+                                  KINCO_DEFAULT_PABS_MINF,
+                                  KINCO_DEFAULT_PABS_TIME, &exception_code);
+    bool ok = false;
     if (r == ESP_OK) {
-        r = auto_cycle_wait_done(p.axis, 60000, &pos_after_cw, &exception_code);
-        cw_ok = (r == ESP_OK);
-    }
-
-    /* Fase 2: regresar a 0 */
-    if (r == ESP_OK && cw_ok) {
-        portENTER_CRITICAL(&s_auto_cycle_mux);
-        s_auto_cycle.phase = CYCLE_PHASE_CCW;
-        s_auto_cycle.cw_ok = true;
-        s_auto_cycle.pos_after_cw = pos_after_cw;
-        portEXIT_CRITICAL(&s_auto_cycle_mux);
-
-        r = kinco_axis_pabs(p.axis, 0, p.ret_speed, KINCO_DEFAULT_PABS_MINF,
-                            KINCO_DEFAULT_PABS_TIME, &exception_code);
-        if (r == ESP_OK) {
-            r = auto_cycle_wait_done(p.axis, 60000, &pos_final, &exception_code);
-            ccw_ok = (r == ESP_OK);
-        }
+        r = auto_cycle_wait_done(p.axis, 120000, &pos_final, &exception_code);
+        ok = (r == ESP_OK);
     }
 
     /* Leer estado final y actualizar el LED */
     kinco_axis_status_t st_final = {};
-    kinco_axis_read_status(p.axis, &st_final);
+    kinco_axis_read_fast_status(p.axis, &st_final);
     update_led_from_status(&st_final);
 
     portENTER_CRITICAL(&s_auto_cycle_mux);
     s_auto_cycle.active = false;
     s_auto_cycle.done = true;
     s_auto_cycle.phase = CYCLE_PHASE_DONE;
-    s_auto_cycle.cw_ok = cw_ok;
-    s_auto_cycle.ccw_ok = ccw_ok;
-    s_auto_cycle.pos_after_cw = pos_after_cw;
+    s_auto_cycle.cw_ok = ok;
+    s_auto_cycle.ccw_ok = ok;   /* la PLC valida ambas fases */
     s_auto_cycle.pos_final = pos_final;
     s_auto_cycle.result = r;
     s_auto_cycle.exception = exception_code;
@@ -758,9 +1228,10 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
     bool has_minf = json_find_int(json, "minf", &minf_value);
     long time_value = 0;
     bool has_time = json_find_int(json, "time", &time_value);
+    long mode_value = 0;
+    bool has_mode = json_find_int(json, "mode", &mode_value);
     long dir_value = 0;
     bool has_dir = json_find_int(json, "dir", &dir_value);
-
     uint32_t maxf = clamp_u32(has_speed ? speed_value : KINCO_DEFAULT_PABS_MAXF,
                               KINCO_DEFAULT_PABS_MAXF, KINCO_MIN_FREQ, KINCO_MAX_FREQ);
     uint16_t minf = clamp_u16(has_minf ? minf_value : KINCO_DEFAULT_PABS_MINF,
@@ -787,85 +1258,116 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
         return;
     }
 
-    if (strcmp(cmd, "kinco_cycle_status") == 0) {
-        kinco_status_response(resp, resp_sz, cmd);
+    /* ── Comandos de control para MAIN_MAIN.ilp (test_2) ── */
+    /* Este programa PLC no usa palabra de control 40070. PSTOP queda interno
+     * para detener JOG al soltar entradas o al mandar kinco_jog_stop.
+     * Se dispara escribiendo un valor ≠ 0 en 40151-40152 (Cmd_TargetSteps).
+     * Comandos soportados: kinco_pabs, kinco_move_delta, kinco_status,
+     * kinco_cycle_status.  kinco_auto_cycle delega en kinco_pabs porque
+     * el PLC ya hace el ciclo completo (ida → 3s → vuelta a 0). */
+    esp_err_t r = ESP_OK;
+    uint8_t exception_code = 0;
+    int32_t target_pos = 0;
+    bool has_target_pos = false;
+    int32_t rel_delta = 0;
+    bool has_rel_delta = false;
+    bool has_home_request = false;
+    int32_t jog_speed_cmd = 0;
+    bool has_jog_request = false;
+
+    if (strcmp(cmd, "kinco_clear_command") == 0) {
+        uint16_t zero_target[2] = {0, 0};
+        uint8_t exception_pabs = 0;
+        uint8_t exception_prel = 0;
+        uint8_t exception_home = 0;
+        uint8_t exception_jog = 0;
+        esp_err_t r_pabs = plc_write_holding_registers(s_kinco_axis[axis].pabs_pos,
+                                                       zero_target, 2,
+                                                       &exception_pabs);
+        esp_err_t r_prel = ESP_OK;
+        if (s_kinco_axis[axis].prel_dist != 0) {
+            r_prel = plc_write_holding_registers(s_kinco_axis[axis].prel_dist,
+                                                 zero_target, 2,
+                                                 &exception_prel);
+        }
+        esp_err_t r_home = ESP_OK;
+        if (s_kinco_axis[axis].home_cmd != 0) {
+            r_home = plc_write_single_register(s_kinco_axis[axis].home_cmd, 0,
+                                               &exception_home);
+        }
+        esp_err_t r_jog = ESP_OK;
+        if (s_kinco_axis[axis].jog_cmd != 0) {
+            r_jog = plc_write_single_register(s_kinco_axis[axis].jog_cmd, 0,
+                                              &exception_jog);
+        }
+        r = (r_pabs == ESP_OK && r_prel == ESP_OK &&
+             r_home == ESP_OK && r_jog == ESP_OK) ? ESP_OK : ESP_FAIL;
+        kinco_axis_status_t st = {};
+        esp_err_t sr = kinco_axis_read_fast_status(axis, &st);
+        snprintf(resp, resp_sz,
+                 "{\"result\":\"%s\",\"cmd\":\"%s\",\"write_pabs\":\"%s\","
+                 "\"write_prel\":\"%s\",\"write_home\":\"%s\",\"write_jog\":\"%s\","
+                 "\"exception_pabs\":%u,\"exception_prel\":%u,"
+                 "\"exception_home\":%u,\"exception_jog\":%u,"
+                 "\"status_read\":\"%s\",\"command_steps\":%ld,\"rel_steps\":%ld,"
+                 "\"home_cmd\":%u,\"jog_cmd\":%u,"
+                 "\"status\":%u,\"jog_status\":%u,\"plc_alive\":%u,\"pos\":%ld}",
+                 r == ESP_OK ? "ok" : "error", cmd, esp_err_to_name(r_pabs),
+                 esp_err_to_name(r_prel), esp_err_to_name(r_home),
+                 esp_err_to_name(r_jog),
+                 exception_pabs, exception_prel, exception_home, exception_jog,
+                 esp_err_to_name(sr), (long)st.command_steps, (long)st.rel_steps,
+                 (unsigned)st.home_cmd, (unsigned)st.jog_cmd,
+                 st.status_word, st.jog_status_word,
+                 (unsigned)((st.status_word >> 15) & 1),
+                 (long)st.position);
         return;
     }
 
-    if (strcmp(cmd, "kinco_pabs") == 0 ||
-        strcmp(cmd, "kinco_start_steps") == 0 ||
-        strcmp(cmd, "kinco_move_delta") == 0 ||
-        strcmp(cmd, "kinco_auto_cycle") == 0) {
-        int32_t target_steps = has_arg ? (int32_t)arg : KINCO_TEST_STEPS;
-        if (target_steps == 0) {
-            snprintf(resp, resp_sz,
-                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"los pasos no pueden ser 0\"}",
-                     cmd);
-            return;
-        }
-
-        uint8_t exception_code = 0;
-        esp_err_t r = kinco_axis_pabs(axis, target_steps, maxf, minf, time_ms,
-                                      &exception_code);
+    /* Stop JOG: debe ejecutarse aunque la PLC este ocupada. */
+    if (strcmp(cmd, "kinco_jog_stop") == 0 ||
+        strcmp(cmd, "kinco_jog_off") == 0) {
+        r = kinco_axis_jog(axis, 0, &exception_code);
         if (r != ESP_OK) {
             snprintf(resp, resp_sz,
                      "{\"result\":\"error\",\"cmd\":\"%s\",\"target\":\"kinco\","
-                     "\"axis\":%d,\"slave\":%u,\"exception\":%u,\"err\":\"%s\","
-                     "\"requested_steps\":%ld}",
-                     cmd, axis, KINCO_SLAVE_ID, exception_code, esp_err_to_name(r),
-                     (long)target_steps);
+                     "\"axis\":%d,\"slave\":%u,\"exception\":%u,\"err\":\"%s\"}",
+                     cmd, axis, KINCO_SLAVE_ID, exception_code, esp_err_to_name(r));
             return;
         }
-
-        kinco_status_response(resp, resp_sz, cmd);
+        kinco_fast_status_response(resp, resp_sz, cmd);
         return;
     }
 
+    /* Comandos no soportados por este programa PLC. */
     if (strcmp(cmd, "kinco_enable") == 0 ||
         strcmp(cmd, "kinco_set_dir") == 0 ||
-        strcmp(cmd, "kinco_home") == 0 ||
         strcmp(cmd, "kinco_stop") == 0 ||
         strcmp(cmd, "kinco_reset_pos") == 0 ||
         strcmp(cmd, "kinco_reset_status") == 0) {
         snprintf(resp, resp_sz,
                  "{\"result\":\"error\",\"cmd\":\"%s\","
-                 "\"msg\":\"comando no usado por pabs_basico_5000\"}",
+                 "\"msg\":\"no soportado: el programa MAIN_MAIN no usa palabra de control 40070. Usa kinco_pabs, kinco_prel, kinco_home o kinco_jog_stop\"}",
                  cmd);
         return;
     }
 
-    esp_err_t r = ESP_OK;
-    uint8_t exception_code = 0;
-    int32_t target_pos = 0;
-    bool has_target_pos = false;
-
-    if (strcmp(cmd, "kinco_enable") == 0) {
-        r = kinco_axis_enable(axis, has_arg ? (arg != 0) : true, &exception_code);
-    } else if (strcmp(cmd, "kinco_set_dir") == 0) {
-        long dir = has_arg ? arg : dir_value;
-        r = plc_write_single_register(s_kinco_axis[axis].home_dir,
-                                      dir ? 1 : 0, &exception_code);
-    } else if (strcmp(cmd, "kinco_home") == 0) {
-        uint32_t home_maxf = clamp_u32(has_speed ? speed_value : KINCO_DEFAULT_HOME_MAXF,
-                                       KINCO_DEFAULT_HOME_MAXF,
-                                       KINCO_MIN_FREQ, KINCO_MAX_FREQ);
-        uint16_t home_minf = clamp_u16(has_minf ? minf_value : KINCO_DEFAULT_HOME_MINF,
-                                       KINCO_DEFAULT_HOME_MINF,
-                                       KINCO_MIN_FREQ, 65535);
-        uint16_t home_time = clamp_u16(has_time ? time_value : KINCO_DEFAULT_HOME_TIME,
-                                       KINCO_DEFAULT_HOME_TIME, 1, 65535);
-        r = kinco_axis_home(axis, has_dir ? (int)dir_value : 0,
-                            home_maxf, home_minf, home_time, &exception_code);
-        maxf = home_maxf;
-        minf = home_minf;
-        time_ms = home_time;
-    } else if (strcmp(cmd, "kinco_pabs") == 0) {
-        target_pos = (int32_t)arg;
-        has_target_pos = true;
-        r = kinco_axis_pabs(axis, target_pos, maxf, minf, time_ms, &exception_code);
-    } else if (strcmp(cmd, "kinco_move_delta") == 0) {
-        kinco_axis_status_t cur = {};
-        esp_err_t sr = kinco_axis_read_status(axis, &cur);
+    bool is_abs_motion_cmd = (strcmp(cmd, "kinco_pabs") == 0 ||
+                              strcmp(cmd, "kinco_start_steps") == 0);
+    bool is_rel_motion_cmd = (strcmp(cmd, "kinco_prel") == 0 ||
+                              strcmp(cmd, "kinco_move_relative") == 0 ||
+                              strcmp(cmd, "kinco_move_delta") == 0);
+    bool is_home_cmd = (strcmp(cmd, "kinco_home") == 0 ||
+                        strcmp(cmd, "kinco_home_fwd") == 0 ||
+                        strcmp(cmd, "kinco_home_bwd") == 0);
+    bool is_jog_cmd = (strcmp(cmd, "kinco_jog") == 0 ||
+                       strcmp(cmd, "kinco_jog_fwd") == 0 ||
+                       strcmp(cmd, "kinco_jog_bwd") == 0);
+    bool is_motion_cmd = is_abs_motion_cmd || is_rel_motion_cmd ||
+                         is_home_cmd || is_jog_cmd;
+    kinco_axis_status_t cur = {};
+    if (is_motion_cmd) {
+        esp_err_t sr = kinco_axis_read_fast_status(axis, &cur);
         if (sr != ESP_OK) {
             snprintf(resp, resp_sz,
                      "{\"result\":\"error\",\"cmd\":\"%s\",\"target\":\"kinco\","
@@ -874,23 +1376,100 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                      cmd, axis, KINCO_SLAVE_ID, esp_err_to_name(sr), cur.exception);
             return;
         }
-        int64_t next = (int64_t)cur.position + (has_arg ? arg : KINCO_TEST_STEPS);
-        if (next < (-2147483647LL - 1) || next > 2147483647LL) {
+        update_led_from_status(&cur);
+        if (kinco_status_cycle_busy(&cur)) {
+            bool plc_alive = (cur.status_word >> 15) & 1;
+            const char *busy_msg = plc_alive
+                ? "ciclo PLC en curso"
+                : "MAIN_MAIN no confirma ejecucion: revisar RUN/download PLC";
             snprintf(resp, resp_sz,
-                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"target fuera de rango\","
-                     "\"pos\":%ld,\"delta\":%ld}",
-                     cmd, (long)cur.position, has_arg ? arg : KINCO_TEST_STEPS);
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"%s\","
+                     "\"command_steps\":%ld,\"rel_steps\":%ld,"
+                     "\"home_cmd\":%u,\"jog_cmd\":%u,"
+                     "\"status\":%u,\"jog_status\":%u,\"plc_alive\":%u,\"pos\":%ld}",
+                     cmd, busy_msg, (long)cur.command_steps, (long)cur.rel_steps,
+                     (unsigned)cur.home_cmd, (unsigned)cur.jog_cmd,
+                     cur.status_word, cur.jog_status_word,
+                     (unsigned)plc_alive, (long)cur.position);
             return;
         }
-        target_pos = (int32_t)next;
+    }
+
+    if (is_abs_motion_cmd) {
+        target_pos = has_arg ? (int32_t)arg : KINCO_TEST_STEPS;
         has_target_pos = true;
-        r = kinco_axis_pabs(axis, target_pos, maxf, minf, time_ms, &exception_code);
-    } else if (strcmp(cmd, "kinco_stop") == 0) {
-        r = kinco_axis_pulse_control(axis, KINCO_CMD_STOP, &exception_code);
-    } else if (strcmp(cmd, "kinco_reset_pos") == 0) {
-        r = kinco_axis_pulse_control(axis, KINCO_CMD_RESET_POS, &exception_code);
-    } else if (strcmp(cmd, "kinco_reset_status") == 0) {
-        r = kinco_axis_pulse_control(axis, KINCO_CMD_RESET_STATUS, &exception_code);
+    } else if (is_rel_motion_cmd) {
+        rel_delta = has_arg ? (int32_t)arg : KINCO_REL_TEST_STEPS;
+        has_rel_delta = true;
+    } else if (is_home_cmd) {
+        has_home_request = true;
+    } else if (is_jog_cmd) {
+        has_jog_request = true;
+        long requested_jog = has_speed ? speed_value :
+                             (has_arg ? arg : KINCO_DEFAULT_JOG_SPEED);
+        if (requested_jog < 0) requested_jog = -requested_jog;
+        uint32_t jog_abs = clamp_u32(requested_jog, KINCO_DEFAULT_JOG_SPEED,
+                                     KINCO_MIN_FREQ, KINCO_MAX_FREQ);
+        bool jog_backward = false;
+        if (strcmp(cmd, "kinco_jog_bwd") == 0) {
+            jog_backward = true;
+        } else if (strcmp(cmd, "kinco_jog_fwd") == 0) {
+            jog_backward = false;
+        } else if (has_arg && arg < 0) {
+            jog_backward = true;
+        } else if (has_dir) {
+            jog_backward = dir_value != 0;
+        }
+        jog_speed_cmd = jog_backward ? -(int32_t)jog_abs : (int32_t)jog_abs;
+        maxf = jog_abs;
+    }
+
+    if (is_motion_cmd) {
+        if ((is_abs_motion_cmd && target_pos == 0) ||
+            (is_rel_motion_cmd && rel_delta == 0) ||
+            (is_jog_cmd && jog_speed_cmd == 0)) {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"los pasos no pueden ser 0\"}",
+                     cmd);
+            return;
+        }
+        if (is_abs_motion_cmd) {
+            r = kinco_axis_pabs(axis, target_pos, maxf, minf, time_ms, &exception_code);
+        } else if (is_rel_motion_cmd) {
+            r = kinco_axis_prel(axis, rel_delta, maxf, minf, time_ms, &exception_code);
+        } else if (is_jog_cmd) {
+            r = kinco_axis_jog(axis, jog_speed_cmd, &exception_code);
+        } else {
+            uint16_t home_dir = KINCO_DEFAULT_HOME_DIR;
+            if (strcmp(cmd, "kinco_home_bwd") == 0) {
+                home_dir = 1;
+            } else if (strcmp(cmd, "kinco_home_fwd") == 0) {
+                home_dir = 0;
+            } else if (has_dir) {
+                home_dir = dir_value ? 1 : 0;
+            } else if (has_arg) {
+                home_dir = arg ? 1 : 0;
+            }
+
+            uint16_t home_mode = KINCO_DEFAULT_HOME_MODE;
+            if (has_mode) {
+                home_mode = (mode_value == 0) ? 0 : 1;
+            }
+
+            uint32_t home_maxf = clamp_u32(has_speed ? speed_value : KINCO_DEFAULT_HOME_MAXF,
+                                           KINCO_DEFAULT_HOME_MAXF,
+                                           KINCO_MIN_FREQ, KINCO_MAX_FREQ);
+            uint16_t home_minf = clamp_u16(has_minf ? minf_value : KINCO_DEFAULT_HOME_MINF,
+                                           KINCO_DEFAULT_HOME_MINF,
+                                           KINCO_MIN_FREQ, 65535);
+            uint16_t home_time_ms = clamp_u16(has_time ? time_value : KINCO_DEFAULT_HOME_TIME,
+                                              KINCO_DEFAULT_HOME_TIME, 1, 65535);
+            maxf = home_maxf;
+            minf = home_minf;
+            time_ms = home_time_ms;
+            r = kinco_axis_home(axis, home_dir, home_mode, home_maxf, home_minf,
+                                home_time_ms, &exception_code);
+        }
     } else if (strcmp(cmd, "kinco_cycle_status") == 0) {
         /* Snapshot del ciclo automático + lectura de estado para el contador
          * en vivo. La UI hace polling de este comando mientras el ciclo corre. */
@@ -900,31 +1479,37 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
         portEXIT_CRITICAL(&s_auto_cycle_mux);
 
         kinco_axis_status_t st = {};
-        esp_err_t sr = kinco_axis_read_status(0, &st);
+        esp_err_t sr = kinco_axis_read_fast_status(0, &st);
         update_led_from_status(&st);
 
         snprintf(resp, resp_sz,
                  "{\"result\":\"%s\",\"cmd\":\"%s\",\"pos\":%ld,"
                  "\"motor\":{\"ok\":%s,\"err\":\"%s\",\"pos\":%ld,\"control\":%u,"
-                 "\"home_dir\":%u,\"status\":%u,\"status2\":%u,\"status3\":%u,"
-                 "\"enable\":%u,\"home_ok\":%u,\"home_done\":%u,\"home_err\":%u,"
-                 "\"pabs_done\":%u,\"pabs_err\":%u,\"pto0\":%u,"
-                 "\"homing_active\":%u,\"pabs_active\":%u,"
-                 "\"home_sensor\":%u,\"system_ready\":%u},"
+                 "\"status\":%u,\"status2\":%u,\"status3\":%u,"
+                 "\"cycle_active\":%u,\"move_out_active\":%u,\"wait_return_active\":%u,"
+                 "\"return_active\":%u,\"cycle_done\":%u,\"cycle_err\":%u,"
+                 "\"pabs_out_done\":%u,\"pabs_out_err\":%u,"
+                 "\"pabs_return_done\":%u,\"pabs_return_err\":%u,"
+                 "\"enable_out\":%u,\"wait_done\":%u,"
+                 "\"prel_active\":%u,\"prel_done\":%u,\"prel_err\":%u,"
+                 "\"plc_alive\":%u},"
                  "\"cycle\":{\"active\":%s,\"done\":%s,\"phase\":\"%s\","
                  "\"cw_ok\":%s,\"ccw_ok\":%s,\"result\":\"%s\",\"exception\":%u,"
                  "\"cw_target\":%ld,\"fwd_speed\":%lu,\"ret_speed\":%lu,"
                  "\"pos_after_cw\":%ld,\"pos_final\":%ld}}",
                  sr == ESP_OK ? "ok" : "error", cmd, (long)st.position,
                  st.ok ? "true" : "false", esp_err_to_name(sr), (long)st.position,
-                 st.control_word, st.home_dir,
+                 st.control_word,
                  st.status_word, st.status_word2, st.status_word3,
-                 (st.control_word >> 0) & 1,
                  (st.status_word >> 0) & 1, (st.status_word >> 1) & 1,
                  (st.status_word >> 2) & 1, (st.status_word >> 3) & 1,
                  (st.status_word >> 4) & 1, (st.status_word >> 5) & 1,
                  (st.status_word >> 6) & 1, (st.status_word >> 7) & 1,
                  (st.status_word >> 8) & 1, (st.status_word >> 9) & 1,
+                 (st.status_word >> 10) & 1, (st.status_word >> 11) & 1,
+                 (st.status_word >> 12) & 1, (st.status_word >> 13) & 1,
+                 (st.status_word >> 14) & 1,
+                 (st.status_word >> 15) & 1,
                  snap.active ? "true" : "false", snap.done ? "true" : "false",
                  cycle_phase_str(snap.phase),
                  snap.cw_ok ? "true" : "false", snap.ccw_ok ? "true" : "false",
@@ -934,21 +1519,38 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                  (long)snap.pos_after_cw, (long)snap.pos_final);
         return;
     } else if (strcmp(cmd, "kinco_auto_cycle") == 0) {
-        /* Ciclo automatico: N steps CW a velocidad forward, regreso a 0 CCW a
-         * velocidad return. Se ejecuta en una tarea dedicada (auto_cycle_task)
-         * para no bloquear el servidor HTTP; este endpoint solo la lanza.
-         * Parametros JSON opcionales:
-         *   "arg"   -> target CW steps (default 15000)
-         *   "speed" -> forward speed Hz (default 5000)
-         *   "minf"  -> return speed Hz (default 2500)
-         */
-        int32_t cw_target = has_arg ? (int32_t)arg : 15000;
-        uint32_t fwd_speed = clamp_u32(has_speed ? speed_value : 5000,
-                                       5000, KINCO_MIN_FREQ, KINCO_MAX_FREQ);
-        long ret_speed_val = 0;
-        bool has_ret_speed = json_find_int(json, "minf", &ret_speed_val);
-        uint32_t ret_speed = clamp_u32(has_ret_speed ? ret_speed_val : 2500,
-                                       2500, KINCO_MIN_FREQ, KINCO_MAX_FREQ);
+        /* MAIN_MAIN.ilp hace ida, espera 3 s y vuelta a 0 dentro de la PLC.
+         * El ESP32 solo lanza un destino distinto de cero y monitorea estado. */
+        int32_t cw_target = has_arg ? (int32_t)arg : KINCO_TEST_STEPS;
+        uint32_t fwd_speed = clamp_u32(has_speed ? speed_value : KINCO_DEFAULT_PABS_MAXF,
+                                       KINCO_DEFAULT_PABS_MAXF,
+                                       KINCO_MIN_FREQ, KINCO_MAX_FREQ);
+        uint32_t ret_speed = fwd_speed;
+        if (cw_target == 0) {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"los pasos no pueden ser 0\"}",
+                     cmd);
+            return;
+        }
+
+        kinco_axis_status_t cur = {};
+        esp_err_t sr = kinco_axis_read_fast_status(axis, &cur);
+        if (sr != ESP_OK) {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"target\":\"kinco\","
+                     "\"axis\":%d,\"slave\":%u,\"status_read\":\"error\","
+                     "\"status_err\":\"%s\",\"exception\":%u}",
+                     cmd, axis, KINCO_SLAVE_ID, esp_err_to_name(sr), cur.exception);
+            return;
+        }
+        update_led_from_status(&cur);
+        if (kinco_status_cycle_busy(&cur)) {
+            snprintf(resp, resp_sz,
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"ciclo PLC en curso\","
+                     "\"status\":%u,\"pos\":%ld}",
+                     cmd, cur.status_word, (long)cur.position);
+            return;
+        }
 
         /* Reservar el ciclo de forma atómica: si ya hay uno activo, rechazar. */
         bool busy;
@@ -996,7 +1598,8 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
 
         snprintf(resp, resp_sz,
                  "{\"result\":\"ok\",\"cmd\":\"%s\",\"target\":\"kinco\",\"axis\":%d,"
-                 "\"running\":true,\"cw_target\":%ld,\"fwd_speed\":%lu,\"ret_speed\":%lu}",
+                 "\"running\":true,\"cw_target\":%ld,\"fwd_speed\":%lu,"
+                 "\"ret_speed\":%lu,\"program\":\"" KINCO_PROGRAM_NAME "\"}",
                  cmd, axis, (long)cw_target, (unsigned long)fwd_speed,
                  (unsigned long)ret_speed);
         return;
@@ -1008,44 +1611,78 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
     }
 
     kinco_axis_status_t st = {};
-    esp_err_t sr = kinco_axis_read_status(axis, &st);
+    esp_err_t sr = kinco_axis_read_fast_status(axis, &st);
     update_led_from_status(&st);
     snprintf(resp, resp_sz,
              "{\"result\":\"%s\",\"cmd\":\"%s\",\"target\":\"kinco\","
              "\"axis\":%d,\"slave\":%u,\"exception\":%u,\"err\":\"%s\","
              "\"status_read\":\"%s\",\"status_err\":\"%s\","
-             "\"control\":%u,\"home_dir\":%u,"
              "\"status\":%u,\"status2\":%u,\"status3\":%u,"
-             "\"pos\":%ld,\"target_pos\":%ld,"
-             "\"enable\":%u,\"reset_pos\":%u,\"start_pabs\":%u,\"start_home\":%u,"
-             "\"reset_status\":%u,\"stop\":%u,"
-             "\"home_ok\":%u,\"home_done\":%u,\"home_err\":%u,"
-             "\"pabs_done\":%u,\"pabs_err\":%u,\"pto0\":%u,"
-             "\"homing_active\":%u,\"pabs_active\":%u,"
-             "\"home_sensor\":%u,\"system_ready\":%u,"
+             "\"home_status\":%u,\"home_error_word\":%u,"
+             "\"jog_status\":%u,\"jog_error_word\":%u,"
+             "\"pos\":%ld,\"target_pos\":%ld,\"rel_delta\":%ld,"
+             "\"home_request\":%u,\"home_cmd\":%u,"
+             "\"jog_request\":%u,\"jog_cmd\":%u,\"jog_speed_cmd\":%ld,"
+             "\"cycle_active\":%u,\"move_out_active\":%u,\"wait_return_active\":%u,"
+             "\"return_active\":%u,\"cycle_done\":%u,\"cycle_err\":%u,"
+             "\"pabs_out_done\":%u,\"pabs_out_err\":%u,"
+             "\"pabs_return_done\":%u,\"pabs_return_err\":%u,"
+             "\"enable_out\":%u,\"wait_done\":%u,"
+             "\"prel_active\":%u,\"prel_done\":%u,\"prel_err\":%u,"
+             "\"home_active\":%u,\"home_done\":%u,\"home_err\":%u,"
+             "\"home_sensor\":%u,\"home_dir\":%u,\"error_home\":%u,"
+             "\"jog_active\":%u,\"jog_done\":%u,\"jog_err\":%u,"
+             "\"jog_dir\":%u,\"jog_fwd_input\":%u,\"jog_bwd_input\":%u,"
+             "\"jog_stop_err\":%u,\"error_jog\":%u,\"error_jog_stop\":%u,"
+             "\"plc_alive\":%u,"
              "\"maxf\":%lu,\"minf\":%u,\"time\":%u}",
              r == ESP_OK ? "ok" : "error", cmd, axis, KINCO_SLAVE_ID,
              exception_code, esp_err_to_name(r),
              sr == ESP_OK ? "ok" : "error", esp_err_to_name(sr),
-             st.control_word, st.home_dir,
              st.status_word, st.status_word2, st.status_word3,
+             st.home_status_word, st.home_error_word,
+             st.jog_status_word, st.jog_error_word,
              (long)st.position, has_target_pos ? (long)target_pos : (long)st.position,
-             (st.control_word >> 0) & 1, (st.control_word >> 1) & 1,
-             (st.control_word >> 2) & 1, (st.control_word >> 3) & 1,
-             (st.control_word >> 4) & 1, (st.control_word >> 5) & 1,
+             has_rel_delta ? (long)rel_delta : 0L,
+             has_home_request ? 1 : 0, (unsigned)st.home_cmd,
+             has_jog_request ? 1 : 0, (unsigned)st.jog_cmd, (long)jog_speed_cmd,
              (st.status_word >> 0) & 1, (st.status_word >> 1) & 1,
              (st.status_word >> 2) & 1, (st.status_word >> 3) & 1,
              (st.status_word >> 4) & 1, (st.status_word >> 5) & 1,
              (st.status_word >> 6) & 1, (st.status_word >> 7) & 1,
              (st.status_word >> 8) & 1, (st.status_word >> 9) & 1,
+             (st.status_word >> 10) & 1, (st.status_word >> 11) & 1,
+             (st.status_word >> 12) & 1, (st.status_word >> 13) & 1,
+             (st.status_word >> 14) & 1,
+             (st.home_status_word >> 0) & 1, (st.home_status_word >> 1) & 1,
+             (st.home_status_word >> 2) & 1, (st.home_status_word >> 3) & 1,
+             st.home_dir, (unsigned)(st.home_error_word & 0x00FF),
+             (st.jog_status_word >> 0) & 1, (st.jog_status_word >> 1) & 1,
+             (st.jog_status_word >> 2) & 1, (st.jog_status_word >> 3) & 1,
+             (st.jog_status_word >> 4) & 1, (st.jog_status_word >> 5) & 1,
+             (st.jog_status_word >> 7) & 1,
+             (unsigned)(st.jog_error_word & 0x00FF),
+             (unsigned)((st.jog_error_word >> 8) & 0x00FF),
+             (st.status_word >> 15) & 1,
              (unsigned long)maxf, minf, time_ms);
 }
 
 static esp_err_t http_get_status_handler(httpd_req_t *req)
 {
-    char resp[1536];
+    char resp[4096];
     kinco_status_response(resp, sizeof(resp), "kinco_status");
     httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "close");
+    httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+static esp_err_t http_get_fast_status_handler(httpd_req_t *req)
+{
+    char resp[2048];
+    kinco_fast_status_response(resp, sizeof(resp), "kinco_fast_status");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
@@ -1061,12 +1698,13 @@ static esp_err_t http_post_command_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
     buf[ret] = '\0';
-    ESP_LOGI(TAG, "Comando recibido: %s", buf);
+    ESP_LOGD(TAG, "Comando recibido: %s", buf);
 
-    char resp[2048];
+    char resp[4096];
     dispatch_command(buf, resp, sizeof(resp));
 
     httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
@@ -1125,6 +1763,7 @@ static esp_err_t __attribute__((unused)) http_get_root_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
@@ -1134,39 +1773,54 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
     const char *html =
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Kinco PABS 5000</title>"
+        "<title>Kinco MAIN_MAIN PABS PREL HOME JOG</title>"
         "<style>"
         ":root{color-scheme:dark}*{box-sizing:border-box}"
-        "body{font-family:Arial,sans-serif;margin:0;background:#111827;color:#e5e7eb}"
-        "main{max-width:820px;margin:0 auto;padding:14px}"
+        "body{font-family:Arial,sans-serif;margin:0;background:#171717;color:#e7e5e4}"
+        "main{max-width:920px;margin:0 auto;padding:14px}"
         "h1{font-size:22px;margin:0 0 5px;color:#f9fafb}"
-        ".sub{color:#9ca3af;font-size:13px;margin:0 0 12px}"
-        "section{border:1px solid #374151;border-radius:8px;padding:12px;margin:10px 0;background:#1f2937}"
+        ".sub{color:#a8a29e;font-size:13px;margin:0 0 12px}"
+        "section{border:1px solid #3f3f46;border-radius:8px;padding:12px;margin:10px 0;background:#242424}"
         ".row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}"
-        "button{background:#2563eb;color:#fff;border:0;border-radius:6px;padding:11px 14px;cursor:pointer;min-height:40px;font-weight:700}"
-        "button:hover{background:#1d4ed8}button:disabled{background:#4b5563;cursor:not-allowed}"
-        ".move{font-size:17px;min-width:165px}.danger{background:#dc2626}"
-        ".ok{color:#34d399}.bad{color:#f87171}.warn{color:#fbbf24}"
+        "button{background:#0f766e;color:#fff;border:0;border-radius:6px;padding:11px 14px;cursor:pointer;min-height:40px;font-weight:700}"
+        "button:hover{background:#0d9488}button:disabled{background:#525252;cursor:not-allowed}"
+        ".move{font-size:17px;min-width:165px}.secondary{background:#57534e}.danger{background:#dc2626}"
+        ".ok{color:#2dd4bf}.bad{color:#fb7185}.warn{color:#fbbf24}"
         ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}"
         ".kv{display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:13px}"
-        ".kv span:nth-child(odd){color:#9ca3af}.mono{font-family:Consolas,monospace}"
-        "label{color:#9ca3af;font-size:13px;display:flex;align-items:center;gap:5px}"
-        "input{background:#111827;color:#e5e7eb;border:1px solid #4b5563;border-radius:6px;padding:8px 9px;width:92px;font-size:14px;text-align:center}"
-        ".counter{background:#111827;border:2px solid #374151;border-radius:8px;padding:14px;text-align:center}"
-        ".counter .big{font:700 52px/1 Consolas,monospace;color:#34d399}"
-        ".counter .label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}"
-        ".status{font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto;max-height:210px;background:#111827;border-radius:6px;padding:8px}"
-        ".muted{color:#9ca3af;font-size:12px}"
+        ".kv span:nth-child(odd){color:#a8a29e}.mono{font-family:Consolas,monospace}"
+        "label{color:#a8a29e;font-size:13px;display:flex;align-items:center;gap:5px}"
+        "input{background:#171717;color:#e7e5e4;border:1px solid #57534e;border-radius:6px;padding:8px 9px;width:92px;font-size:14px;text-align:center}"
+        ".counter{background:#171717;border:2px solid #3f3f46;border-radius:8px;padding:14px;text-align:center}"
+        ".counter .big{font:700 52px/1 Consolas,monospace;color:#2dd4bf}"
+        ".counter .label{font-size:11px;color:#78716c;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}"
+        ".status{font-family:Consolas,monospace;white-space:pre-wrap;overflow:auto;max-height:210px;background:#171717;border-radius:6px;padding:8px}"
+        ".muted{color:#a8a29e;font-size:12px}"
         "</style></head><body><main>"
-        "<h1>Kinco PABS 5000</h1>"
-        "<p class='sub'>PLC pabs_basico_5000: escribir pasos en 40051, la PLC habilita, mueve, espera 3 s, vuelve a cero y deshabilita.</p>"
-        "<div class='counter'><div class='label'>Posicion actual 40101</div><div class='big' id='pos'>0</div>"
+        "<h1>Kinco MAIN_MAIN PABS/PREL/HOME/JOG</h1>"
+        "<p class='sub'>Ciclo PLC: 40151 dispara PABS ida-vuelta; 40157 dispara PHOME; 40167 dispara PREL relativo; 40175 dispara JOG. El driver energiza con Q0.3=0.</p>"
+        "<div class='counter'><div class='label'>Posicion actual 40201</div><div class='big' id='pos'>0</div>"
         "<div class='muted' id='phase'>Sin lectura</div></div>"
         "<section><div class='row'>"
-        "<button class='move' onclick='startSteps(5000)'>+5000 y volver a 0</button>"
-        "<button class='move' onclick='startSteps(-5000)'>-5000 y volver a 0</button>"
-        "<button onclick='readStates(true)'>Leer estados</button>"
+        "<button class='move' onclick='startSteps(5000)'>+5000 y volver</button>"
+        "<button class='move' onclick='startSteps(30000)'>+30000 y volver</button>"
+        "<button class='move secondary' onclick='startSteps(-5000)'>-5000 y volver</button>"
+        "<button class='secondary' onclick='readStates(true)'>Leer estados</button>"
+        "<button class='secondary' onclick='api({cmd:\"kinco_clear_command\"})'>Limpiar comandos</button>"
         "</div></section>"
+        "<section><div class='row'>"
+        "<button class='move' onclick='startRel(7000)'>+7000 relativo</button>"
+        "<button class='move secondary' onclick='startRel(-7000)'>-7000 relativo</button>"
+        "</div><p class='muted'>PREL mueve la distancia indicada desde la posicion actual y no vuelve a cero.</p></section>"
+        "<section><div class='row'>"
+        "<button class='move' onclick='startHome(0)'>HOME forward</button>"
+        "<button class='move secondary' onclick='startHome(1)'>HOME backward</button>"
+        "</div><p class='muted'>PHOME usa sensor en I0.0, comando 40157 y parametros 40158-40163.</p></section>"
+        "<section><div class='row'>"
+        "<button class='move' onmousedown='jogStart(1)' onmouseup='jogStop()' onmouseleave='jogStop()' ontouchstart='jogTouch(event,1)' ontouchend='jogTouch(event,0)' ontouchcancel='jogTouch(event,0)'>JOG forward</button>"
+        "<button class='move secondary' onmousedown='jogStart(-1)' onmouseup='jogStop()' onmouseleave='jogStop()' ontouchstart='jogTouch(event,-1)' ontouchend='jogTouch(event,0)' ontouchcancel='jogTouch(event,0)'>JOG backward</button>"
+        "<button class='danger' onclick='jogStop(true)'>STOP JOG</button>"
+        "</div><p class='muted'>JOG fisico: I0.1 forward, I0.2 backward. JOG web usa velocidad Max Hz y registros 40175-40178.</p></section>"
         "<section><div class='row'>"
         "<label>Pasos<input id='steps' type='number' value='5000' min='1' max='999999' step='1000'></label>"
         "<label>Max Hz<input id='maxf' type='number' value='2000' min='125' max='200000' step='100'></label>"
@@ -1174,33 +1828,62 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "<label>Accel<input id='time' type='number' value='300' min='1' max='65535' step='50'></label>"
         "<button onclick='startCustom(1)'>Enviar +pasos</button>"
         "<button onclick='startCustom(-1)'>Enviar -pasos</button>"
-        "</div><p class='muted'>Registros: pasos 40051-40052, max 40053-40054, min 40055, accel 40056.</p></section>"
+        "<button onclick='startRelCustom(1)'>PREL +pasos</button>"
+        "<button onclick='startRelCustom(-1)'>PREL -pasos</button>"
+        "</div><p class='muted'>PABS: 40151-40156. HOME: 40157-40163. PREL: 40167-40172. JOG: 40175-40178.</p></section>"
         "<section><div class='grid'>"
         "<div><strong>Registros</strong><div class='kv' id='regs'>Sin lectura</div></div>"
-        "<div><strong>Bits 40152</strong><div class='kv' id='bits'>Sin lectura</div></div>"
+        "<div><strong>Bits 40252</strong><div class='kv' id='bits'>Sin lectura</div></div>"
         "</div></section>"
-        "<section><strong>Respuesta</strong><pre class='status' id='log'>Listo</pre><div class='muted'>UI pabs_basico_5000 v1</div></section>"
+        "<section><strong>Respuesta</strong><pre class='status' id='log'>Listo</pre><div class='muted'>UI MAIN_MAIN test_2 v2</div></section>"
         "</main><script>"
-        "let running=false,pollId=null,pollTicks=0,targetAbs=0;"
+        "let running=false,pollId=null,pollTicks=0,targetAbs=0,statusBusy=false,fastBusy=false,cmdBusy=false,jogHeld=false;"
         "function q(id){return document.getElementById(id)}"
         "function hx(v){return '0x'+(v||0).toString(16).padStart(4,'0')}"
+        "function hxb(v){return '0x'+(v||0).toString(16).padStart(2,'0')}"
         "function cls(v){return v?'ok':'bad'}"
         "function num(id,def){let v=parseInt(q(id).value);return Number.isFinite(v)?v:def}"
         "function cfg(){return {speed:num('maxf',2000),minf:num('minf',300),time:num('time',300)}}"
-        "async function api(b){let r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});let j=await r.json();q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paint(j.motor);return j}"
-        "function active(m){return !!(m&&(m.cycle_active||m.move_out_active||m.wait_return_active||m.return_active))}"
-        "function failed(m){return !!(m&&(m.cycle_err||m.pabs_out_err||m.pabs_return_err))}"
-        "function phase(m){if(!m)return 'Sin lectura';if(failed(m))return 'Error';if(m.move_out_active)return 'Moviendo a destino';if(m.wait_return_active)return 'Esperando 3 s';if(m.return_active)return 'Volviendo a cero';if(m.cycle_active)return 'Ciclo activo';if(m.cycle_done)return 'Terminado';return 'Idle'}"
-        "function paint(m){q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m);"
+        "async function getStatus(show=true){if(statusBusy)return null;statusBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),5000);try{let r=await fetch('/api/status',{cache:'no-store',signal:ac.signal});let j=await r.json();if(show)q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paint(j.motor);return j}catch(e){let j={result:'error',cmd:'kinco_status',msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);statusBusy=false}}"
+        "async function getFastStatus(show=false){if(fastBusy)return null;fastBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),1800);try{let r=await fetch('/api/fast_status',{cache:'no-store',signal:ac.signal});let j=await r.json();if(show)q('log').textContent=JSON.stringify(j,null,2);if(j.motor)paintFast(j.motor);return j}catch(e){if(show)q('log').textContent=JSON.stringify({result:'error',cmd:'kinco_fast_status',msg:e.name},null,2);return null}finally{clearTimeout(t);fastBusy=false}}"
+        "async function api(b,force=false){if(cmdBusy&&!force)return {result:'error',msg:'comando en curso'};if(!force)cmdBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),7000);try{let r=await fetch('/api/command',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Connection':'close'},body:JSON.stringify(b),signal:ac.signal});let j=await r.json();q('log').textContent=JSON.stringify(j,null,2);if(j.motor){if(j.fast)paintFast(j.motor);else paint(j.motor)}return j}catch(e){let j={result:'error',cmd:b.cmd,msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);if(!force)cmdBusy=false}}"
+        "function active(m){return !!(m&&(m.cycle_active||m.move_out_active||m.wait_return_active||m.return_active||m.prel_active||m.home_active||m.jog_active))}"
+        "function failed(m){return !!(m&&(m.cycle_err||m.pabs_out_err||m.pabs_return_err||m.prel_err||m.home_err||m.jog_err||m.jog_stop_err))}"
+        "function phase(m){if(!m)return 'Sin lectura';if(failed(m))return 'Error';if(m.jog_active)return 'JOG '+(m.jog_dir_bit?'backward':'forward');if(m.home_active)return 'Buscando HOME';if(m.prel_active)return 'Moviendo relativo';if(m.move_out_active)return 'Moviendo a destino';if(m.wait_return_active)return 'Esperando 3 s';if(m.return_active)return 'Volviendo a cero';if(m.cycle_active)return 'Ciclo activo';if(m.jog_done)return 'JOG terminado';if(m.home_done)return 'HOME terminado';if(m.prel_done)return 'Relativo terminado';if(m.cycle_done)return 'Terminado';return 'Idle'}"
+        "function paintFast(m){q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m)}"
+        "function paint(m){let dbg=(m.debug_return!==undefined)?m.debug_return:((m.status3||0)>>8);let q03=(dbg>>7)&1;let pto=(dbg>>6)&1;let drv=dbg?q03?0:1:m.enable_out;"
+        "q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m);"
         "q('regs').innerHTML='<span>Link</span><span class='+cls(m.ok)+'>'+(m.ok?'OK':'ERR '+m.err)+'</span>'"
-        "+'<span>Comando 40051</span><span class=mono>'+m.command_steps+'</span>'"
-        "+'<span>Max 40053</span><span class=mono>'+m.maxf+'</span>'"
-        "+'<span>Min 40055</span><span class=mono>'+m.minf+'</span>'"
-        "+'<span>Accel 40056</span><span class=mono>'+m.time+'</span>'"
-        "+'<span>Estado 40152</span><span class=mono>'+hx(m.status)+'</span>'"
-        "+'<span>Error ida 40153</span><span class=mono>'+hx(m.error_out)+'</span>'"
-        "+'<span>Error vuelta 40154</span><span class=mono>'+hx(m.error_return)+'</span>'"
-        "+'<span>Enable Q0.3</span><span class='+cls(m.enable_out)+'>'+m.enable_out+'</span>';"
+        "+'<span>Comando 40151</span><span class=mono>'+m.command_steps+'</span>'"
+        "+'<span>Max 40153</span><span class=mono>'+m.maxf+'</span>'"
+        "+'<span>Min 40155</span><span class=mono>'+m.minf+'</span>'"
+        "+'<span>Accel 40156</span><span class=mono>'+m.time+'</span>'"
+        "+'<span>HOME cmd 40157</span><span class=mono>'+m.home_cmd+'</span>'"
+        "+'<span>HOME dir 40159</span><span class=mono>'+m.home_dir+'</span>'"
+        "+'<span>HOME max 40161</span><span class=mono>'+m.home_maxf+'</span>'"
+        "+'<span>HOME min 40160</span><span class=mono>'+m.home_minf+'</span>'"
+        "+'<span>HOME accel 40163</span><span class=mono>'+m.home_time+'</span>'"
+        "+'<span>Rel 40167</span><span class=mono>'+m.rel_steps+'</span>'"
+        "+'<span>PREL max 40169</span><span class=mono>'+m.prel_maxf+'</span>'"
+        "+'<span>PREL min 40171</span><span class=mono>'+m.prel_minf+'</span>'"
+        "+'<span>PREL accel 40172</span><span class=mono>'+m.prel_time+'</span>'"
+        "+'<span>JOG cmd 40175</span><span class=mono>'+m.jog_cmd+'</span>'"
+        "+'<span>JOG dir 40176</span><span class=mono>'+m.jog_dir+'</span>'"
+        "+'<span>JOG speed 40177</span><span class=mono>'+m.jog_speed+'</span>'"
+        "+'<span>Estado 40252</span><span class=mono>'+hx(m.status)+'</span>'"
+        "+'<span>Error ida 40253</span><span class=mono>'+hxb(m.error_out)+'</span>'"
+        "+'<span>Error PREL 40254L</span><span class=mono>'+hxb(m.error_return)+'</span>'"
+        "+'<span>HOME estado 40255</span><span class=mono>'+hx(m.home_status)+'</span>'"
+        "+'<span>Error HOME 40256L</span><span class=mono>'+hxb(m.error_home)+'</span>'"
+        "+'<span>JOG estado 40257</span><span class=mono>'+hx(m.jog_status)+'</span>'"
+        "+'<span>Error JOG 40258L</span><span class=mono>'+hxb(m.error_jog)+'</span>'"
+        "+'<span>Error PSTOP JOG 40258H</span><span class=mono>'+hxb(m.error_jog_stop)+'</span>'"
+        "+'<span>Debug 40254H</span><span class=mono>'+hxb(dbg)+'</span>'"
+        "+'<span>Enable logico</span><span class='+cls(m.enable_out)+'>'+m.enable_out+'</span>'"
+        "+'<span>Q0.3 fisico</span><span class=mono>'+q03+' '+(q03?'OFF':'ON')+'</span>'"
+        "+'<span>Driver energizado</span><span class='+cls(drv)+'>'+drv+'</span>'"
+        "+'<span>PTO0 SM66.7</span><span class='+cls(pto)+'>'+pto+'</span>'"
+        "+'<span>PLC Alive</span><span class='+cls(m.plc_alive)+'>'+m.plc_alive+'</span>';"
         "q('bits').innerHTML='<span>b0 CycleActive</span><span>'+m.cycle_active+'</span>'"
         "+'<span>b1 MoveOut</span><span>'+m.move_out_active+'</span>'"
         "+'<span>b2 WaitReturn</span><span>'+m.wait_return_active+'</span>'"
@@ -1211,18 +1894,42 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "+'<span>b7 OutErr</span><span class='+cls(!m.pabs_out_err)+'>'+m.pabs_out_err+'</span>'"
         "+'<span>b8 RetDone</span><span>'+m.pabs_return_done+'</span>'"
         "+'<span>b9 RetErr</span><span class='+cls(!m.pabs_return_err)+'>'+m.pabs_return_err+'</span>'"
-        "+'<span>b10 EnableOut</span><span>'+m.enable_out+'</span>'"
-        "+'<span>b11 WaitDone</span><span>'+m.wait_done+'</span>';}"
-        "async function readStates(show){let j=await api({cmd:'kinco_status'});return j}"
-        "function startPoll(){if(pollId)clearInterval(pollId);pollTicks=0;pollId=setInterval(async()=>{pollTicks++;try{let j=await api({cmd:'kinco_cycle_status'});let m=j.motor;if(m&&(failed(m)||(!active(m)&&m.cycle_done&&pollTicks>2))){clearInterval(pollId);pollId=null;running=false;}}catch(e){}},500)}"
+        "+'<span>b10 Enable logico</span><span>'+m.enable_out+'</span>'"
+        "+'<span>b11 WaitDone</span><span>'+m.wait_done+'</span>'"
+        "+'<span>b12 PrelActive</span><span>'+m.prel_active+'</span>'"
+        "+'<span>b13 PrelDone</span><span>'+m.prel_done+'</span>'"
+        "+'<span>b14 PrelErr</span><span class='+cls(!m.prel_err)+'>'+m.prel_err+'</span>'"
+        "+'<span>b15 PLC Alive</span><span class='+cls(m.plc_alive)+'>'+m.plc_alive+'</span>'"
+        "+'<span>40255.0 HomeActive</span><span>'+m.home_active+'</span>'"
+        "+'<span>40255.1 HomeDone</span><span>'+m.home_done+'</span>'"
+        "+'<span>40255.2 HomeErr</span><span class='+cls(!m.home_err)+'>'+m.home_err+'</span>'"
+        "+'<span>40255.3 HomeSensor</span><span class='+cls(m.home_sensor)+'>'+m.home_sensor+'</span>'"
+        "+'<span>40255.4 HomeDir</span><span>'+m.home_dir_bit+'</span>'"
+        "+'<span>40257.0 JogActive</span><span>'+m.jog_active+'</span>'"
+        "+'<span>40257.1 JogDone</span><span>'+m.jog_done+'</span>'"
+        "+'<span>40257.2 JogErr</span><span class='+cls(!m.jog_err)+'>'+m.jog_err+'</span>'"
+        "+'<span>40257.3 JogDir</span><span>'+m.jog_dir_bit+'</span>'"
+        "+'<span>40257.4 I0.1 Fwd</span><span class='+cls(m.jog_fwd_input)+'>'+m.jog_fwd_input+'</span>'"
+        "+'<span>40257.5 I0.2 Bwd</span><span class='+cls(m.jog_bwd_input)+'>'+m.jog_bwd_input+'</span>'"
+        "+'<span>40257.6 CmdWeb</span><span>'+m.jog_cmd_active+'</span>'"
+        "+'<span>40257.7 StopErr</span><span class='+cls(!m.jog_stop_err)+'>'+m.jog_stop_err+'</span>';}"
+        "async function readStates(show){return show?await getStatus(true):await getFastStatus(false)}"
+        "function startPoll(){if(pollId)clearInterval(pollId);pollTicks=0;pollId=setInterval(async()=>{pollTicks++;try{let j=await getFastStatus(false);if(!j)return;let m=j.motor;if(m&&(failed(m)||(!active(m)&&m.cycle_done&&pollTicks>2))){clearInterval(pollId);pollId=null;running=false;getStatus(false)}}catch(e){}},300)}"
         "async function startSteps(steps){if(running)return;let c=cfg();targetAbs=Math.abs(steps);running=true;q('phase').textContent='Enviando '+steps+' pasos';let j=await api({cmd:'kinco_pabs',axis:0,arg:steps,speed:c.speed,minf:c.minf,time:c.time});if(j.result!=='ok'){running=false;return}startPoll()}"
+        "async function startRel(steps){if(running)return;let c=cfg();targetAbs=Math.abs(steps);running=true;q('phase').textContent='PREL '+steps+' pasos';let j=await api({cmd:'kinco_prel',axis:0,arg:steps,speed:c.speed,minf:c.minf,time:c.time});if(j.result!=='ok'){running=false;return}startPoll()}"
+        "async function startHome(dir){if(running)return;let c=cfg();running=true;q('phase').textContent='HOME '+(dir?'backward':'forward');let j=await api({cmd:'kinco_home',axis:0,arg:dir,dir:dir,mode:1,speed:c.speed,minf:c.minf,time:c.time});if(j.result!=='ok'){running=false;return}startPoll()}"
+        "async function jogStart(dir){if(jogHeld||running)return;let c=cfg();jogHeld=true;running=true;q('phase').textContent='JOG '+(dir>0?'forward':'backward');let j=await api({cmd:dir>0?'kinco_jog_fwd':'kinco_jog_bwd',axis:0,speed:c.speed});if(j.result!=='ok'){jogHeld=false;running=false;return}if(!jogHeld){await api({cmd:'kinco_jog_stop',axis:0},true);running=false;return}startPoll()}"
+        "async function jogStop(force=false){if(!jogHeld&&!force)return;jogHeld=false;let j=await api({cmd:'kinco_jog_stop',axis:0},true);running=false;if(pollId){clearInterval(pollId);pollId=null}await readStates(false);return j}"
+        "function jogTouch(e,dir){e.preventDefault();if(dir)jogStart(dir);else jogStop()}"
         "function startCustom(sign){let s=Math.abs(num('steps',5000));startSteps(sign*s)}"
-        "setInterval(()=>{if(!running)readStates(false)},2000);readStates(false);"
+        "function startRelCustom(sign){let s=Math.abs(num('steps',7000));startRel(sign*s)}"
+        "setInterval(()=>{if(!running&&!fastBusy&&!statusBusy)getFastStatus(false)},1000);getStatus(false);"
         "</script></body></html>";
 
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
@@ -1375,6 +2082,7 @@ static esp_err_t __attribute__((unused)) http_get_kinco_root_handler_old(httpd_r
 static const httpd_uri_t s_uri_handlers[] = {
     {.uri = "/",              .method = HTTP_GET,  .handler = http_get_kinco_root_handler,  .user_ctx = nullptr},
     {.uri = "/api/status",    .method = HTTP_GET,  .handler = http_get_status_handler,      .user_ctx = nullptr},
+    {.uri = "/api/fast_status", .method = HTTP_GET, .handler = http_get_fast_status_handler, .user_ctx = nullptr},
     {.uri = "/api/command",   .method = HTTP_POST, .handler = http_post_command_handler,    .user_ctx = nullptr},
 };
 
@@ -1518,6 +2226,9 @@ esp_err_t http_server_start(uint16_t port)
     config.max_uri_handlers = 16;
     config.max_open_sockets = 7;
     config.lru_purge_enable = true;
+    config.recv_wait_timeout = 3;
+    config.send_wait_timeout = 3;
+    config.keep_alive_enable = false;
     /* El handler de comandos usa buffers grandes en stack (buf[512]+resp[2048])
      * y arma respuestas JSON extensas con snprintf; el default de 4096 queda
      * al borde del overflow. Lo subimos para dar margen. */

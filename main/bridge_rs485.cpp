@@ -14,6 +14,7 @@
 #include "relay_control.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "lwip/sockets.h"
@@ -75,6 +76,29 @@ static uint16_t modbus_crc16(const uint8_t *buf, size_t len)
     return crc;
 }
 
+static size_t modbus_rtu_expected_len(const uint8_t *buf, size_t len)
+{
+    if (len < 2) return 0;
+    uint8_t func = buf[1];
+    if (func & 0x80) return 5;
+
+    switch (func) {
+    case 0x01:
+    case 0x02:
+    case 0x03:
+    case 0x04:
+        if (len < 3) return 0;
+        return (size_t)buf[2] + 5;  /* id + func + byte_count + data + crc */
+    case 0x05:
+    case 0x06:
+    case 0x0F:
+    case 0x10:
+        return 8;
+    default:
+        return 0;
+    }
+}
+
 static esp_err_t rs485_uart_init(void)
 {
     /* Habilitar el transceiver ANTES de transmitir nada. */
@@ -134,14 +158,48 @@ static esp_err_t rs485_transact_locked(const uint8_t *request, size_t request_le
         return ret;
     }
 
-    int rx_len = uart_read_bytes(uart, response, response_capacity,
-                                 pdMS_TO_TICKS(timeout_ms));
-    if (rx_len <= 0) {
-        return ESP_ERR_TIMEOUT;
+    int64_t deadline_us = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+    size_t rx_len = 0;
+    size_t expected_len = 0;
+
+    while (rx_len < response_capacity) {
+        int64_t remaining_us = deadline_us - esp_timer_get_time();
+        if (remaining_us <= 0) break;
+
+        if (expected_len == 0) {
+            expected_len = modbus_rtu_expected_len(response, rx_len);
+        }
+        if (expected_len > 0 && rx_len >= expected_len) {
+            *response_len = rx_len;
+            return ESP_OK;
+        }
+
+        size_t want = 1;
+        if (expected_len > 0) {
+            want = expected_len - rx_len;
+        }
+        if (want > response_capacity - rx_len) {
+            want = response_capacity - rx_len;
+        }
+
+        uint32_t remaining_ms = (uint32_t)(remaining_us / 1000);
+        if (remaining_ms == 0) remaining_ms = 1;
+        TickType_t wait_ticks = pdMS_TO_TICKS(remaining_ms > 5 ? 5 : remaining_ms);
+        if (wait_ticks == 0) wait_ticks = 1;
+
+        int got = uart_read_bytes(uart, response + rx_len, want, wait_ticks);
+        if (got <= 0) {
+            continue;
+        }
+
+        rx_len += (size_t)got;
     }
 
-    *response_len = (size_t)rx_len;
-    return ESP_OK;
+    if (rx_len > 0) {
+        *response_len = rx_len;
+        return ESP_OK;
+    }
+    return ESP_ERR_TIMEOUT;
 }
 
 /* ================================================================
@@ -396,6 +454,12 @@ static void tcp_server_task(void *arg)
         if (client_sock < 0) {
             continue;
         }
+
+        struct timeval sock_timeout = {};
+        sock_timeout.tv_sec = 2;
+        sock_timeout.tv_usec = 0;
+        setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &sock_timeout, sizeof(sock_timeout));
+        setsockopt(client_sock, SOL_SOCKET, SO_SNDTIMEO, &sock_timeout, sizeof(sock_timeout));
 
         ESP_LOGI(TAG, "Cliente conectado: %s", inet_ntoa(client_addr.sin_addr));
 

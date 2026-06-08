@@ -5,14 +5,18 @@ MK043E-20DT, usando un ESP32 LILYGO T-CAN485 como interfaz WiFi/HTTP y
 puente MODBUS TCP -> MODBUS RTU por RS485.
 
 El estado actual del proyecto esta enfocado en el programa PLC
-`pabs_basico_5000`: el ESP32 escribe un destino PABS en `40051-40052` y la PLC
-hace el ciclo completo:
+`Kinco_esp_Modbus_test_2`: el ESP32 puede escribir un destino PABS en
+`40151-40152` para hacer el ciclo completo, lanzar HOME con `40157`, o
+escribir una distancia PREL en `40167-40168` para mover relativo desde la
+posicion actual:
 
 ```text
 idle -> habilita driver -> PABS a destino -> espera 3 s -> PABS a 0 -> deshabilita
+idle -> habilita driver -> PHOME hasta sensor I0.0 -> reset contador -> deshabilita
+idle -> habilita driver -> PREL +/-distancia -> deshabilita
 ```
 
-No se usa HOME, STOP ni palabra de control `40070` en esta version de prueba.
+No se usa STOP ni palabra de control `40070` en esta version de prueba.
 
 ## Hardware
 
@@ -43,12 +47,12 @@ En KincoBuilder, cargar/importar:
 
 | Archivo | Uso |
 |---|---|
-| `Info/programas_prueba/pabs_basico_5000.ilp` | Programa IL del PLC |
-| `Info/programas_prueba/pabs_basico_5000.kgv` | Variables globales |
-| `Info/programas_prueba/pabs_basico_5000_var_global.csv` | CSV alternativo para importar variables |
-| `Info/programas_prueba/pabs_basico_5000_ladder.md` | Documentacion del ladder |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2.kpr` | Proyecto KincoBuilder actual |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/MAIN_MAIN.ilp` | Programa IL del PLC |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/Kinco_esp_Modbus_test_2.kgv` | Variables globales |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/Kinco_esp_Modbus_test_2_var_global.csv` | CSV alternativo para importar variables |
 
-Dejar la PLC en RUN con MODBUS RTU Slave ID `1`, `9600 8N1`.
+Dejar la PLC en RUN con MODBUS RTU Slave ID `1`, `115200 8N1` (configurar en KincoBuilder → hardware COM1; el firmware ESP usa 115200 por defecto).
 
 ### 2. Compilar firmware ESP32
 
@@ -84,11 +88,12 @@ Funciones disponibles:
 
 | Seccion | Funcion |
 |---|---|
-| Posicion actual | Lee `40101-40102` y muestra la posicion copiada desde `%SMD212` |
-| `+5000 y volver a 0` | Escribe `5000` en `40051-40052`; la PLC hace el ciclo completo |
-| `-5000 y volver a 0` | Escribe `-5000` en `40051-40052`; la PLC hace el ciclo completo |
+| Posicion actual | Lee `40201-40202` y muestra la posicion copiada desde `%SMD212` |
+| `+5000 y volver a 0` | Escribe `5000` en `40151-40152`; la PLC hace el ciclo completo |
+| `-5000 y volver a 0` | Escribe `-5000` en `40151-40152`; la PLC hace el ciclo completo |
+| `HOME forward/backward` | Escribe parametros en `40158-40163` y dispara `40157` |
 | Parametros | Ajusta max Hz, min Hz y aceleracion antes de enviar el destino |
-| Bits `40152` | Muestra estado del ciclo PLC |
+| Bits `40252` | Muestra estado del ciclo PLC |
 | Log JSON | Ultima respuesta de `/api/command` |
 
 ## API HTTP
@@ -96,10 +101,11 @@ Funciones disponibles:
 | Metodo | Endpoint | Descripcion |
 |---|---|---|
 | `GET` | `/` | Panel de control HTML |
-| `GET` | `/api/status` | Estado general del ESP32 |
+| `GET` | `/api/status` | Estado completo de PLC/ESP32 para diagnostico |
+| `GET` | `/api/fast_status` | Estado liviano para contador y refresco rapido |
 | `POST` | `/api/command` | Comandos JSON hacia la PLC |
 
-### Comandos utiles para `pabs_basico_5000`
+### Comandos utiles para `Kinco_esp_Modbus_test_2`
 
 Leer estado:
 
@@ -119,7 +125,33 @@ Enviar un ciclo a `-5000` pasos:
 {"cmd":"kinco_pabs","axis":0,"arg":-5000,"speed":2000,"minf":300,"time":300}
 ```
 
-`arg` no puede ser `0`, porque `40051-40052 = 0` se usa como estado idle.
+Enviar un movimiento relativo de prueba a `+7000` pasos, sin vuelta a cero:
+
+```json
+{"cmd":"kinco_prel","axis":0,"arg":7000,"speed":2000,"minf":300,"time":300}
+```
+
+Enviar un movimiento relativo a `-7000` pasos:
+
+```json
+{"cmd":"kinco_prel","axis":0,"arg":-7000,"speed":2000,"minf":300,"time":300}
+```
+
+Lanzar HOME forward con sensor en `%I0.0`:
+
+```json
+{"cmd":"kinco_home","axis":0,"arg":0,"mode":1,"speed":1000,"minf":200,"time":300}
+```
+
+Lanzar HOME backward:
+
+```json
+{"cmd":"kinco_home","axis":0,"arg":1,"mode":1,"speed":1000,"minf":200,"time":300}
+```
+
+En `kinco_pabs` y `kinco_prel`, `arg` no puede ser `0`, porque los registros
+de comando en `0` se usan como idle. En `kinco_home`, `arg=0` significa
+forward y `arg=1` backward.
 
 ### Ejemplo PowerShell
 
@@ -134,11 +166,10 @@ Invoke-RestMethod `
 ### Comandos no usados en esta prueba
 
 Estos comandos pertenecian al programa anterior con palabra de control `40070`
-y el firmware los rechaza para `pabs_basico_5000`:
+y el firmware los rechaza para `Kinco_esp_Modbus_test_2`:
 
 ```json
 {"cmd":"kinco_enable","arg":1}
-{"cmd":"kinco_home","arg":0}
 {"cmd":"kinco_stop"}
 {"cmd":"kinco_reset_pos"}
 {"cmd":"kinco_reset_status"}
@@ -146,47 +177,74 @@ y el firmware los rechaza para `pabs_basico_5000`:
 
 ## Mapa MODBUS Kinco <-> ESP32
 
-El programa PLC `pabs_basico_5000` expone:
+El programa PLC `Kinco_esp_Modbus_test_2/MAIN_MAIN.ilp` expone:
 
 ### Escritura ESP32 -> PLC
 
 | MODBUS | Kinco | Tipo | Funcion |
 |---:|---|---|---|
-| 40051-40052 | `%VD100` | DINT | Comando de pasos destino; distinto de `0` arranca ciclo |
-| 40053-40054 | `%VD104` | DWORD | Frecuencia maxima PABS |
-| 40055 | `%VW108` | WORD | Frecuencia minima PABS |
-| 40056 | `%VW110` | WORD | Tiempo de aceleracion/desaceleracion |
+| 40151-40152 | `%VD100` | DINT | Comando de pasos destino; distinto de `0` arranca ciclo |
+| 40153-40154 | `%VD104` | DWORD | Frecuencia maxima PABS |
+| 40155 | `%VW108` | WORD | Frecuencia minima PABS |
+| 40156 | `%VW110` | WORD | Tiempo de aceleracion/desaceleracion |
+| 40157 | `%VW112` | WORD | Comando HOME; distinto de `0` arranca PHOME |
+| 40158 | `%VW114` | WORD | Modo HOME; `1` usa solo sensor HOME |
+| 40159 | `%VW116` | WORD | Direccion HOME; `0` forward, `1` backward |
+| 40160 | `%VW118` | WORD | Frecuencia minima HOME |
+| 40161-40162 | `%VD120` | DWORD | Frecuencia maxima HOME |
+| 40163 | `%VW124` | WORD | Tiempo de aceleracion/desaceleracion HOME |
+| 40167-40168 | `%VD132` | DINT | Distancia relativa PREL; distinto de `0` arranca movimiento |
+| 40169-40170 | `%VD136` | DWORD | Frecuencia maxima PREL |
+| 40171 | `%VW140` | WORD | Frecuencia minima PREL |
+| 40172 | `%VW142` | WORD | Tiempo de aceleracion/desaceleracion PREL |
 
 ### Interno PLC
 
 | Kinco | Tipo | Funcion |
 |---|---|---|
-| `%VD120` | DINT | Copia interna del destino recibido |
-| `%VD124` | DINT | Destino de vuelta a cero |
-| `%VD128` | DINT | Destino activo usado por la unica instruccion `PABS` |
+| `%VD180` | DINT | Copia interna del destino recibido |
+| `%VD184` | DINT | Destino de vuelta a cero |
+| `%VD188` | DINT | Destino activo usado por la unica instruccion `PABS` |
+| `%VD192` | DINT | Distancia activa usada por la instruccion `PREL` |
 | `%M0.7` | BOOL | Pulso comun de arranque PABS |
+| `%M4.5` | BOOL | Pulso de arranque PREL |
+| `%M5.1` | BOOL | Pulso de arranque PHOME |
 
 ### Lectura PLC -> ESP32
 
 | MODBUS | Kinco | Tipo | Funcion |
 |---:|---|---|---|
-| 40101-40102 | `%VD200` | DINT | Posicion actual copiada desde `%SMD212` |
-| 40152 | `%VW302` | WORD | Bits de estado del ciclo |
-| 40153 | `%VW304` | WORD | `Err_Pabs`, low byte `%VB304` |
-| 40154 | `%VW306` | WORD | Reservado/limpiado |
+| 40201-40202 | `%VD200` | DINT | Posicion actual copiada desde `%SMD212` |
+| 40252 | `%VW302` | WORD | Bits de estado del ciclo |
+| 40253 | `%VW304` | WORD | `Err_Pabs`, low byte `%VB304` |
+| 40254 | `%VW306` | WORD | `Err_Prel`, low byte `%VB306`; debug en high byte |
+| 40255 | `%VW308` | WORD | Bits de estado HOME |
+| 40256 | `%VW310` | WORD | `Err_Home`, low byte `%VB310` |
 
 Si el master usa direcciones base 0:
 
 ```text
-40051-40052 -> address 50, quantity 2
-40053-40054 -> address 52, quantity 2
-40055       -> address 54
-40056       -> address 55
-40101-40102 -> address 100, quantity 2
-40152       -> address 151
+40151-40152 -> address 150, quantity 2
+40153-40154 -> address 152, quantity 2
+40155       -> address 154
+40156       -> address 155
+40157       -> address 156
+40158       -> address 157
+40159       -> address 158
+40160       -> address 159
+40161-40162 -> address 160, quantity 2
+40163       -> address 162
+40167-40168 -> address 166, quantity 2
+40169-40170 -> address 168, quantity 2
+40171       -> address 170
+40172       -> address 171
+40201-40202 -> address 200, quantity 2
+40252       -> address 251
+40255       -> address 254
+40256       -> address 255
 ```
 
-## Bits de estado `40152` / `%VW302`
+## Bits de estado `40252` / `%VW302`
 
 | Bit | Direccion | Nombre | Significado |
 |---:|---|---|---|
@@ -200,25 +258,45 @@ Si el master usa direcciones base 0:
 | 7 | `%V302.7` | PabsOutErr | Error en PABS de ida |
 | 8 | `%V303.0` | PabsReturnDone | PABS de vuelta completado |
 | 9 | `%V303.1` | PabsReturnErr | Error en PABS de vuelta |
-| 10 | `%V303.2` | EnableOut | Estado de `%Q0.3` |
+| 10 | `%V303.2` | EnableOut | Driver habilitado logico; `%Q0.3` fisico es activo-bajo |
 | 11 | `%V303.3` | WaitDone | Timer de espera terminado |
+| 12 | `%V303.4` | PrelActive | Movimiento relativo activo |
+| 13 | `%V303.5` | PrelDone | PREL completado correctamente |
+| 14 | `%V303.6` | PrelErr | Error en PREL |
+| 15 | `%V303.7` | PlcAlive | `MAIN_MAIN.ilp` esta escaneando en la PLC |
 
-## Cableado PLC usado por `pabs_basico_5000`
+## Bits de estado HOME `40255` / `%VW308`
+
+| Bit | Direccion | Nombre | Significado |
+|---:|---|---|---|
+| 0 | `%V308.0` | HomeActive | PHOME activo |
+| 1 | `%V308.1` | HomeDone | PHOME terminado correctamente |
+| 2 | `%V308.2` | HomeErr | Error en PHOME |
+| 3 | `%V308.3` | HomeSensor | Estado de `%I0.0` |
+| 4 | `%V308.4` | HomeDir | Direccion HOME activa |
+| 5 | `%V308.5` | HomeResetPulse | Pulso que limpia `%SMD212` al terminar HOME |
+
+## Cableado PLC usado por `MAIN_MAIN.ilp`
 
 | Funcion | PLC |
 |---|---|
 | STEP / PUL | `%Q0.0` |
 | DIR | `%Q0.2` |
-| Enable driver | `%Q0.3` |
+| Enable driver | `%Q0.3` activo-bajo (`0` habilita, `1` deshabilita) |
+| Sensor HOME | `%I0.0` |
 
-`%Q0.0` y `%Q0.2` los maneja la instruccion `PABS`; no se fuerzan desde ladder.
+`%Q0.0` y `%Q0.2` los manejan las instrucciones `PABS`/`PREL`/`PHOME`; no se fuerzan desde ladder.
+`%SM201.7` y `%SM201.3` se fuerzan a `0` en el PLC. `%SM201.6` es reset de
+posicion PTO0: `MAIN_MAIN.ilp` lo pulsa en el primer scan y al terminar HOME,
+pero no debe quedar mantenido en `1` porque limpiaria continuamente `%SMD212`
+y puede dejar PABS sin movimiento util aunque los registros Modbus se escriban correctamente.
 
 ## Configuracion MODBUS RTU
 
 | Parametro | Valor |
 |---|---|
 | Slave ID PLC | `1` |
-| Baudrate | `9600` |
+| Baudrate | `115200` (verificar que KincoBuilder lo permita; docs oficiales listan 9600/19200 — probar 115200 o fallback a 19200) |
 | Formato | `8N1` |
 | Timeout firmware | 700 ms |
 
@@ -251,10 +329,11 @@ nema23_kinco_modbus_esp32/
 |   `-- relay_control.cpp / .h
 |-- Info/
 |   |-- programas_prueba/
-|   |   |-- pabs_basico_5000.ilp
-|   |   |-- pabs_basico_5000.kgv
-|   |   |-- pabs_basico_5000_var_global.csv
-|   |   `-- pabs_basico_5000_ladder.md
+|   |   |-- Kinco_esp_Modbus_test_2.kpr
+|   |   `-- Kinco_esp_Modbus_test_2/
+|   |       |-- MAIN_MAIN.ilp
+|   |       |-- Kinco_esp_Modbus_test_2.kgv
+|   |       `-- Kinco_esp_Modbus_test_2_var_global.csv
 |   `-- preview_kinco_ui.html
 |-- scripts/
 |   |-- build.ps1
@@ -267,16 +346,16 @@ nema23_kinco_modbus_esp32/
 
 - ESP-IDF v5.5.1
 - Python 3.12 con entorno ESP-IDF configurado
-- Kinco MK043E-20DT con `pabs_basico_5000` cargado
+- Kinco MK043E-20DT con `Kinco_esp_Modbus_test_2` cargado
 - Driver NEMA23 externo y fuente de alimentacion
 
 ## Archivos relacionados
 
 | Archivo | Descripcion |
 |---|---|
-| `Info/programas_prueba/pabs_basico_5000.ilp` | Programa PLC en IL (21 redes logicas, ~27 fisicas — optimizado desde 88) |
-| `Info/programas_prueba/pabs_basico_5000.kgv` | Variables globales PLC |
-| `Info/programas_prueba/pabs_basico_5000_var_global.csv` | CSV para KincoBuilder |
-| `Info/programas_prueba/pabs_basico_5000_ladder.md` | Documentacion del ladder |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2.kpr` | Proyecto KincoBuilder actual |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/MAIN_MAIN.ilp` | Programa PLC en IL para PABS/PREL/HOME/JOG |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/Kinco_esp_Modbus_test_2.kgv` | Variables globales PLC |
+| `Info/programas_prueba/Kinco_esp_Modbus_test_2/Kinco_esp_Modbus_test_2_var_global.csv` | CSV para KincoBuilder |
 | `Info/KincoBuilder_MK043E-20DT_programa_basico.md` | Programa basico de referencia |
 | `Info/kinco_mk043e_nema23_context.md` | Contexto tecnico del proyecto |

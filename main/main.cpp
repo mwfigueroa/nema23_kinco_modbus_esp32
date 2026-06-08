@@ -44,9 +44,9 @@ static const char *TAG = "main";
  * ================================================================ */
 
 #define PLC_RS485_TEST_ENABLE       0
-#define PLC_RS485_TEST_BAUD         9600
+#define PLC_RS485_TEST_BAUD         RS485_BAUD   /* Unificado con pin_config.h (115200). Cambiar también en KincoBuilder (COM1 del PLC). */
 #define PLC_RS485_TEST_SLAVE_ID     1
-#define PLC_RS485_TEST_REGISTER     50      /* Kinco eje 0 control word: 40051 -> address base 0 = 50 */
+#define PLC_RS485_TEST_REGISTER     150     /* MAIN_MAIN Cmd_TargetSteps: 40151 -> address base 0 = 150 */
 #define PLC_RS485_TEST_VALUE        0x0001
 #define PLC_RS485_TEST_TIMEOUT_MS   500
 
@@ -105,7 +105,7 @@ static void __attribute__((unused)) plc_rs485_test_task(void *arg)
 
     ESP_LOGI(TAG, "PLC RS485 test: slave=%u FC06 holding_reg=%u value=%u baud=%u",
              PLC_RS485_TEST_SLAVE_ID, PLC_RS485_TEST_REGISTER,
-             PLC_RS485_TEST_VALUE, PLC_RS485_TEST_BAUD);
+             PLC_RS485_TEST_VALUE, PLC_RS485_TEST_BAUD);  /* baud ahora viene de RS485_BAUD (pin_config) */
     log_frame_hex("PLC TX", req, req_len);
 
     uint8_t resp[64] = {};

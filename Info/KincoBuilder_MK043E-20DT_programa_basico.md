@@ -5,7 +5,7 @@ Objetivo: dejar un programa minimo para probar comunicacion Modbus RTU con la ES
 La ESP usa:
 
 - Slave ID PLC: `1`
-- Baud: `9600`
+- Baud: `115200` (configurar en KincoBuilder; ESP usa 115200 por defecto)
 - Formato sugerido: `8N1`
 - Modbus FC03 para leer
 - Modbus FC16 para escribir 2 holding registers
@@ -23,7 +23,7 @@ En Kinco, `%VD0` ocupa dos words consecutivos:
 1. Crear proyecto nuevo para la CPU `MK043E-20DT`.
 2. En hardware/puerto serie RS485, configurar el PLC como Modbus RTU slave:
    - Address: `1`
-   - Baudrate: `9600`
+   - Baudrate: `115200` (o el máximo que KincoBuilder permita para el slave RTU; ESP configurado a 115200)
    - Parity: `None`
    - Data bits: `8`
    - Stop bits: `1`

@@ -95,7 +95,7 @@ un rung de ladder con una unica conexion al power rail izquierdo).
 ## Prueba desde MODBUS
 
 1. Cargar `pabs_basico_5000.ilp` y `pabs_basico_5000.kgv` en KincoBuilder.
-2. Dejar la PLC en RUN y confirmar MODBUS RTU Slave, ID `1`, `9600 8N1`.
+2. Dejar la PLC en RUN y confirmar MODBUS RTU Slave, ID `1`, `115200 8N1` (configurar baud en KincoBuilder hardware/COM1; firmware ESP ya usa 115200).
 3. Escribir `40051-40052 = 5000` como DINT.
 4. Debe verse `%Q0.3 = 1`, movimiento a `5000`, espera de 3 s, vuelta a `0`, `%Q0.3 = 0`.
 5. Para sentido contrario, escribir `40051-40052 = -5000` como DINT.

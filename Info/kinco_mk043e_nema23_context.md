@@ -187,7 +187,7 @@ Configuracion sugerida de COM1 en KincoBuilder:
 ```text
 Protocol: MODBUS RTU Slave
 Station ID: 1
-Baudrate: 9600 o 19200
+Baudrate: 115200 (recomendado para performance; KincoBuilder puede limitar a 9600/19200 según help — probar y fallback a 19200 si no acepta)
 Data: 8N1
 ```
 

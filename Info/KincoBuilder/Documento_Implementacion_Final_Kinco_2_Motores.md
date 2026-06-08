@@ -41,7 +41,7 @@ Configuracion recomendada del puerto serie COM1:
 |---|---|
 | Protocolo | MODBUS RTU Slave |
 | Station ID | `1` |
-| Baudrate | `9600` o `19200` |
+| Baudrate | `115200` (probar; KincoBuilder puede limitar a 9600/19200 — fallback 19200) |
 | Formato | `8N1` |
 
 Modelo objetivo: Kinco MK043E-20DT o el modelo equivalente que KincoBuilder muestre para esta CPU.

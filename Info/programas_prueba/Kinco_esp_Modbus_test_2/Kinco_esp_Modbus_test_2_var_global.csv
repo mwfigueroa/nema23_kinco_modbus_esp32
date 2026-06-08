@@ -1,0 +1,125 @@
+Symbol,Address,Data Type,Comment
+HomeSensor,%I0.0,BOOL,Sensor fisico de HOME
+JogFwdInput,%I0.1,BOOL,Entrada fisica JOG forward
+JogBwdInput,%I0.2,BOOL,Entrada fisica JOG backward
+PabsOutStarted,%M0.1,BOOL,Latch de start PABS ida emitido
+PabsEnableReady,%M0.2,BOOL,Timer T1 terminado antes de PABS ida
+StartPabsOutPulse,%M0.3,BOOL,Pulso PABS ida despues de enable
+StartOutPulse,%M0.4,BOOL,Pulso interno PABS ida
+StartReturnPulse,%M0.5,BOOL,Pulso interno PABS vuelta
+WaitDone,%M0.6,BOOL,Timer espera 3 segundos terminado
+StartPabsPulse,%M0.7,BOOL,Pulso comun de la unica instruccion PABS
+CycleActive,%M1.0,BOOL,Ciclo activo habilita driver
+MoveOutActive,%M1.1,BOOL,PABS ida activo
+WaitReturnActive,%M1.2,BOOL,Esperando antes de volver a cero
+ReturnActive,%M1.3,BOOL,PABS vuelta activo
+CycleDone,%M1.4,BOOL,Ciclo terminado correctamente
+CycleErr,%M1.5,BOOL,Ciclo con error
+PabsRawDone,%M2.0,BOOL,Done bruto de la instruccion PABS
+PabsRawErr,%M2.1,BOOL,Error bruto de la instruccion PABS
+PabsOutDone,%M2.2,BOOL,Done latcheado de ida
+PabsOutErr,%M2.3,BOOL,Error latcheado de ida
+PabsReturnDone,%M3.1,BOOL,Done latcheado de vuelta
+PabsReturnErr,%M3.2,BOOL,Error latcheado de vuelta
+PrelRawDone,%M4.0,BOOL,Done bruto de la instruccion PREL
+PrelRawErr,%M4.1,BOOL,Error bruto de la instruccion PREL
+PrelDone,%M4.2,BOOL,Done latcheado de movimiento relativo
+PrelErr,%M4.3,BOOL,Error latcheado de movimiento relativo
+PrelActive,%M4.4,BOOL,PREL relativo activo
+StartPrelPulse,%M4.5,BOOL,Pulso interno PREL relativo
+HomeNHomeFalse,%M5.0,BOOL,NHOME falso para PHOME modo 1
+StartHomePulse,%M5.1,BOOL,Pulso interno PHOME
+HomeRawDone,%M5.2,BOOL,Done bruto de la instruccion PHOME
+HomeRawErr,%M5.3,BOOL,Error bruto de la instruccion PHOME
+HomeDone,%M5.4,BOOL,Done latcheado de HOME
+HomeErr,%M5.5,BOOL,Error latcheado de HOME
+HomeActive,%M5.6,BOOL,HOME activo
+HomeResetPosPulse,%M5.7,BOOL,Pulso para resetear contador al terminar HOME
+JogRawDone,%M6.0,BOOL,Done bruto de la instruccion PJOG
+JogRawErr,%M6.1,BOOL,Error bruto de la instruccion PJOG
+JogDone,%M6.2,BOOL,JOG terminado por soltar entradas o comando stop
+JogErr,%M6.3,BOOL,Error latcheado de JOG
+JogActive,%M6.4,BOOL,JOG activo
+JogStartFwd,%M6.5,BOOL,Pulso interno arranque JOG forward
+JogStartBwd,%M6.6,BOOL,Pulso interno arranque JOG backward
+JogCmdActive,%M6.7,BOOL,Comando web JOG distinto de cero
+JogStopPulse,%M7.0,BOOL,Pulso interno PSTOP para detener JOG
+JogStopErr,%M7.1,BOOL,Error bruto de la instruccion PSTOP JOG
+JogStartPulse,%M7.2,BOOL,Pulso comun EXEC de la instruccion PJOG
+Hw_StepPul,%Q0.0,BOOL,PTO0 STEP PUL manejado por PABS/PREL/PHOME
+Hw_Dir,%Q0.2,BOOL,PTO0 DIR manejado por PABS/PREL/PHOME
+Hw_DrvEnable,%Q0.3,BOOL,Enable driver activo solo durante el ciclo
+Status_CycleActive,%V302.0,BOOL,Estado bit 0 CycleActive
+Status_MoveOutActive,%V302.1,BOOL,Estado bit 1 MoveOutActive
+Status_WaitReturnActive,%V302.2,BOOL,Estado bit 2 WaitReturnActive
+Status_ReturnActive,%V302.3,BOOL,Estado bit 3 ReturnActive
+Status_CycleDone,%V302.4,BOOL,Estado bit 4 CycleDone
+Status_CycleErr,%V302.5,BOOL,Estado bit 5 CycleErr
+Status_PabsOutDone,%V302.6,BOOL,Estado bit 6 PabsOutDone
+Status_PabsOutErr,%V302.7,BOOL,Estado bit 7 PabsOutErr
+Status_PabsReturnDone,%V303.0,BOOL,Estado bit 8 PabsReturnDone
+Status_PabsReturnErr,%V303.1,BOOL,Estado bit 9 PabsReturnErr
+Status_EnableOut,%V303.2,BOOL,Estado bit 10 EnableOut
+Status_WaitDone,%V303.3,BOOL,Estado bit 11 WaitDone
+Status_PrelActive,%V303.4,BOOL,Estado bit 12 PREL activo
+Status_PrelDone,%V303.5,BOOL,Estado bit 13 PREL terminado
+Status_PrelErr,%V303.6,BOOL,Estado bit 14 PREL error
+Status_PlcAlive,%V303.7,BOOL,Estado bit 15 PLC vivo
+Debug_StartPabsOut,%V307.0,BOOL,Debug bit 0 start PABS ida
+Debug_PabsRawDone,%V307.1,BOOL,Debug bit 1 done bruto PABS
+Debug_PabsRawErr,%V307.2,BOOL,Debug bit 2 error bruto PABS
+Debug_StartReturn,%V307.3,BOOL,Debug bit 3 start retorno PABS
+Debug_PabsReturnDone,%V307.4,BOOL,Debug bit 4 done retorno PABS
+Debug_PabsReturnErr,%V307.5,BOOL,Debug bit 5 error retorno PABS
+Debug_PtoBusy,%V307.6,BOOL,Debug bit 6 PTO ocupado
+Debug_DrvEnable,%V307.7,BOOL,Debug bit 7 salida enable driver
+Status_HomeActive,%V308.0,BOOL,HOME activo
+Status_HomeDone,%V308.1,BOOL,HOME terminado
+Status_HomeErr,%V308.2,BOOL,HOME con error
+Status_HomeSensor,%V308.3,BOOL,Sensor HOME
+Status_HomeDir,%V308.4,BOOL,Direccion HOME 0 forward 1 backward
+Status_HomeResetPulse,%V308.5,BOOL,Pulso reset posicion por HOME
+Status_JogActive,%V312.0,BOOL,JOG activo
+Status_JogDone,%V312.1,BOOL,JOG terminado
+Status_JogErr,%V312.2,BOOL,JOG con error
+Status_JogDir,%V312.3,BOOL,Direccion JOG 0 forward 1 backward
+Status_JogFwdInput,%V312.4,BOOL,Entrada I0.1 JOG forward
+Status_JogBwdInput,%V312.5,BOOL,Entrada I0.2 JOG backward
+Status_JogCmdActive,%V312.6,BOOL,Comando web JOG activo
+Status_JogStopErr,%V312.7,BOOL,PSTOP JOG con error
+PabsError_Word,%VW304,WORD,MODBUS 40253 error PABS
+PrelError_Word,%VW306,WORD,MODBUS 40254 error PREL y debug
+HomeError_Word,%VW310,WORD,MODBUS 40256 error HOME
+JogError_Word,%VW314,WORD,MODBUS 40258 error JOG
+Err_Pabs,%VB304,BYTE,MODBUS 40253 low byte error PABS actual
+Err_Prel,%VB306,BYTE,MODBUS 40254 low byte error PREL actual
+Err_Debug,%VB307,BYTE,MODBUS 40254 high byte debug
+Err_Home,%VB310,BYTE,MODBUS 40256 low byte error PHOME actual
+Err_HomeReserved,%VB311,BYTE,MODBUS 40256 high byte reservado
+Err_Jog,%VB314,BYTE,MODBUS 40258 low byte error PJOG actual
+Err_JogStop,%VB315,BYTE,MODBUS 40258 high byte error PSTOP JOG
+Cmd_TargetSteps,%VD100,DINT,MODBUS 40151-40152 pasos destino absoluto distinto de 0 arranca PABS
+PabsMaxF,%VD104,DWORD,MODBUS 40153-40154 frecuencia maxima PABS
+HomeMaxF,%VD120,DWORD,MODBUS 40161-40162 frecuencia maxima HOME
+Cmd_RelSteps,%VD132,DINT,MODBUS 40167-40168 pasos relativos PREL distinto de 0 arranca movimiento
+PrelMaxF,%VD136,DWORD,MODBUS 40169-40170 frecuencia maxima PREL
+JogSpeed,%VD152,DWORD,MODBUS 40177-40178 velocidad JOG
+MoveTarget,%VD180,DINT,Copia interna del destino recibido
+ReturnTarget,%VD184,DINT,Destino interno de vuelta a cero
+ActivePabsTarget,%VD188,DINT,Destino usado por la unica instruccion PABS
+ActivePrelDist,%VD192,DINT,Distancia relativa activa usada por PREL
+Status_PosActual,%VD200,DINT,MODBUS 40201-40202 copia de SMD212
+PabsMinF,%VW108,WORD,MODBUS 40155 frecuencia minima PABS
+PabsTime,%VW110,WORD,MODBUS 40156 aceleracion desaceleracion PABS
+Cmd_Home,%VW112,WORD,MODBUS 40157 comando HOME distinto de 0 arranca PHOME
+HomeMode,%VW114,INT,MODBUS 40158 modo HOME 1 solo sensor HOME
+HomeDir,%VW116,INT,MODBUS 40159 direccion HOME 0 forward 1 backward
+HomeMinF,%VW118,WORD,MODBUS 40160 frecuencia minima HOME
+HomeTime,%VW124,WORD,MODBUS 40163 aceleracion desaceleracion HOME
+PrelMinF,%VW140,WORD,MODBUS 40171 frecuencia minima PREL
+PrelTime,%VW142,WORD,MODBUS 40172 aceleracion desaceleracion PREL
+Cmd_Jog,%VW148,WORD,MODBUS 40175 comando JOG 0 stop 1 forward 2 backward
+JogDir,%VW150,INT,MODBUS 40176 direccion JOG 0 forward 1 backward
+Status_Word,%VW302,WORD,MODBUS 40252 estado del ciclo
+HomeStatus_Word,%VW308,WORD,MODBUS 40255 estado de HOME
+JogStatus_Word,%VW312,WORD,MODBUS 40257 estado de JOG

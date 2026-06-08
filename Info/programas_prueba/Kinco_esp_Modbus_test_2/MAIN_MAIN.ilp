@@ -1,162 +1,663 @@
-(*2*)
+(*1*)
 (* Network 0 *)
-LD    %SM0.0
-R    %SM201.7
-R    %SM201.3
+LD      %SM0.0
+R       %SM201.7
+R       %SM201.3
+R       %M5.0
 (* Network 1 *)
-LD    %SM0.1
-ST   %SM201.6
+LD      %SM0.1
+ST      %SM201.6
 (* Network 2 *)
-LD    %SM0.1
-MOVE    DI#0, Cmd_TargetSteps
-MOVE    DW#2000, PabsMaxF
-MOVE    W#300, PabsMinF
-MOVE    W#300, PabsTime
-MOVE    DI#0, MoveTarget
-MOVE    DI#0, ReturnTarget
-MOVE    DI#0, ActivePabsTarget
+LD      %SM0.1
+MOVE    DI#0, %VD100
+MOVE    DW#2000, %VD104
+MOVE    W#300, %VW108
+MOVE    W#300, %VW110
+MOVE    W#0, %VW112
+MOVE    I#1, %VW114
+MOVE    I#0, %VW116
+MOVE    W#200, %VW118
+MOVE    DW#1000, %VD120
+MOVE    W#300, %VW124
+MOVE    DI#0, %VD132
+MOVE    DW#2000, %VD136
+MOVE    W#300, %VW140
+MOVE    W#300, %VW142
+MOVE    W#0, %VW148
+MOVE    I#0, %VW150
+MOVE    DW#1000, %VD152
+MOVE    DI#0, %VD180
+MOVE    DI#0, %VD184
+MOVE    DI#0, %VD188
+MOVE    DI#0, %VD192
 (* Network 3 *)
-LD    %SM0.1
-MOVE    W#0, Status_Word
+LD      %SM0.1
+MOVE    W#0, %VW302
 MOVE    W#0, %VW304
 MOVE    W#0, %VW306
+MOVE    W#0, %VW308
+MOVE    W#0, %VW310
+MOVE    W#0, %VW312
+MOVE    W#0, %VW314
 (* Network 4 *)
-LD    %SM0.1
-R    %M0.4
-R    %M0.5
-R    %M0.6
-R    %M0.7
-R    %M1.0
-R    %M1.1
-R    %M1.2
-R    %M1.3
-R    %M1.4
-R    %M1.5
-R    %M2.0
-R    %M2.1
-R    %M2.2
-R    %M2.3
-R    %M3.1
-R    %M3.2
+LD      %SM0.1
+R       %M0.1
+R       %M0.2
+R       %M0.3
+R       %M0.4
+R       %M0.5
+R       %M0.6
+R       %M0.7
+R       %M1.0
+R       %M1.1
+R       %M1.2
+R       %M1.3
+R       %M1.4
+R       %M1.5
+R       %M2.0
+R       %M2.1
+R       %M2.2
+R       %M2.3
+R       %M3.1
+R       %M3.2
+R       %M4.0
+R       %M4.1
+R       %M4.2
+R       %M4.3
+R       %M4.4
+R       %M4.5
+R       %M5.0
+R       %M5.1
+R       %M5.2
+R       %M5.3
+R       %M5.4
+R       %M5.5
+R       %M5.6
+R       %M5.7
+R       %M6.0
+R       %M6.1
+R       %M6.2
+R       %M6.3
+R       %M6.4
+R       %M6.5
+R       %M6.6
+R       %M6.7
+R       %M7.0
+R       %M7.1
+R       %M7.2
 (* Network 5 *)
-LD    %SM0.0
+LD      %SM0.0
 ANDN    %M1.0
-NE    Cmd_TargetSteps, DI#0
-ST   %M0.4
+NE      %VD100, DI#0
+ST      %M0.4
 (* Network 6 *)
-LD    %M0.4
-MOVE    Cmd_TargetSteps, MoveTarget
-MOVE    Cmd_TargetSteps, ActivePabsTarget
-MOVE    DI#0, Cmd_TargetSteps
+LD      %M0.4
+MOVE    %VD100, %VD180
+MOVE    DI#0, %VD184
+MOVE    %VD100, %VD188
+MOVE    DI#0, %VD100
+MOVE    DI#0, %VD132
+MOVE    W#0, %VW112
+MOVE    W#0, %VW148
 MOVE    W#0, %VW304
 MOVE    W#0, %VW306
+MOVE    W#0, %VW310
+MOVE    W#0, %VW314
 (* Network 7 *)
-LD    %M0.4
-S    %M1.0
-S    %M1.1
-R    %M1.2
-R    %M1.3
-R    %M1.4
-R    %M1.5
-R    %M2.0
-R    %M2.1
-R    %M2.2
-R    %M2.3
-R    %M3.1
-R    %M3.2
+LD      %M0.4
+S       %M1.0
+S       %M1.1
+R       %M1.2
+R       %M1.3
+R       %M1.4
+R       %M1.5
+R       %M2.0
+R       %M2.1
+R       %M2.2
+R       %M2.3
+R       %M3.1
+R       %M3.2
+R       %M4.0
+R       %M4.1
+R       %M4.2
+R       %M4.3
+R       %M4.4
+R       %M4.5
+R       %M5.1
+R       %M5.2
+R       %M5.3
+R       %M5.4
+R       %M5.5
+R       %M5.6
+R       %M5.7
+R       %M6.0
+R       %M6.1
+R       %M6.2
+R       %M6.3
+R       %M6.4
+R       %M6.5
+R       %M6.6
+R       %M6.7
+R       %M7.0
+R       %M7.1
+R       %M7.2
+R       %M0.1
+R       %M0.2
+R       %M0.3
+R       %M0.5
+R       %M0.6
+R       %M0.7
 (* Network 8 *)
-LD    %M1.0
-ST   %Q0.3
+LD      %SM0.0
+ANDN    %M1.0
+NE      %VD132, DI#0
+ST      %M4.5
 (* Network 9 *)
-LD    %M1.2
-TON   T0, 3000
-ST   %M0.6
+LD      %M4.5
+MOVE    %VD132, %VD192
+MOVE    DI#0, %VD132
+MOVE    DI#0, %VD100
+MOVE    W#0, %VW112
+MOVE    W#0, %VW148
+MOVE    W#0, %VW304
+MOVE    W#0, %VW306
+MOVE    W#0, %VW310
+MOVE    W#0, %VW314
 (* Network 10 *)
-LD    %M1.2
-AND    %M0.6
-ST   %M0.5
+LD      %M4.5
+S       %M1.0
+S       %M4.4
+R       %M1.1
+R       %M1.2
+R       %M1.3
+R       %M1.4
+R       %M1.5
+R       %M2.0
+R       %M2.1
+R       %M2.2
+R       %M2.3
+R       %M3.1
+R       %M3.2
+R       %M4.0
+R       %M4.1
+R       %M4.2
+R       %M4.3
+R       %M5.1
+R       %M5.2
+R       %M5.3
+R       %M5.4
+R       %M5.5
+R       %M5.6
+R       %M5.7
+R       %M6.0
+R       %M6.1
+R       %M6.2
+R       %M6.3
+R       %M6.4
+R       %M6.5
+R       %M6.6
+R       %M6.7
+R       %M7.0
+R       %M7.1
+R       %M7.2
+R       %M0.1
+R       %M0.2
+R       %M0.3
+R       %M0.4
+R       %M0.5
+R       %M0.6
+R       %M0.7
 (* Network 11 *)
-LD    %M0.5
-MOVE    ReturnTarget, ActivePabsTarget
-R    %M1.2
-S    %M1.3
-R    %M2.0
-R    %M2.1
-R    %M3.1
-R    %M3.2
+LD      %SM0.0
+ANDN    %M1.0
+NE      %VW112, W#0
+ST      %M5.1
 (* Network 12 *)
-LD    %M0.4
-OR    %M0.5
-ST   %M0.7
+LD      %M5.1
+MOVE    W#0, %VW112
+MOVE    DI#0, %VD100
+MOVE    DI#0, %VD132
+MOVE    W#0, %VW148
+MOVE    W#0, %VW304
+MOVE    W#0, %VW306
+MOVE    W#0, %VW310
+MOVE    W#0, %VW314
 (* Network 13 *)
-LD    %SM0.0
-PABS    0, StartPabsPulse, PabsMinF, PabsMaxF, PabsTime, ActivePabsTarget, PabsRawDone, PabsRawErr, Err_Pabs
+LD      %M5.1
+S       %M1.0
+S       %M5.6
+R       %M1.1
+R       %M1.2
+R       %M1.3
+R       %M1.4
+R       %M1.5
+R       %M2.0
+R       %M2.1
+R       %M2.2
+R       %M2.3
+R       %M3.1
+R       %M3.2
+R       %M4.0
+R       %M4.1
+R       %M4.2
+R       %M4.3
+R       %M4.4
+R       %M4.5
+R       %M5.2
+R       %M5.3
+R       %M5.4
+R       %M5.5
+R       %M5.7
+R       %M6.0
+R       %M6.1
+R       %M6.2
+R       %M6.3
+R       %M6.4
+R       %M6.5
+R       %M6.6
+R       %M6.7
+R       %M7.0
+R       %M7.1
+R       %M7.2
+R       %M0.1
+R       %M0.2
+R       %M0.3
+R       %M0.4
+R       %M0.5
+R       %M0.6
+R       %M0.7
 (* Network 14 *)
-LD    %M1.1
-AND    %M2.0
-S    %M2.2
-S    %M1.2
-R    %M1.1
+LD      %SM0.0
+R       %M6.5
+R       %M6.6
+R       %M7.0
+R       %M7.2
 (* Network 15 *)
-LD    %M1.1
-AND    %M2.1
-S    %M2.3
-S    %M1.5
-R    %M1.2
-R    %M1.3
-R    %M1.0
-R    %M1.1
+LD      %SM0.0
+NE      %VW148, W#0
+ST      %M6.7
 (* Network 16 *)
-LD    %M1.3
-AND    %M2.0
-S    %M3.1
-S    %M1.4
-R    %M1.0
-R    %M1.3
+LD      %SM0.0
+ANDN    %M1.0
+AND     %I0.1
+ANDN    %I0.2
+S       %M6.5
 (* Network 17 *)
-LD    %M1.3
-AND    %M2.1
-S    %M3.2
-S    %M1.5
-R    %M1.0
-R    %M1.3
+LD      %SM0.0
+ANDN    %M1.0
+AND     %I0.2
+ANDN    %I0.1
+S       %M6.6
 (* Network 18 *)
-LD    %SM0.0
-MOVE    %SMD212, Status_PosActual
+LD      %SM0.0
+ANDN    %M1.0
+EQ      %VW148, W#1
+S       %M6.5
 (* Network 19 *)
-LD    %M1.0
-ST   %V302.0
+LD      %SM0.0
+ANDN    %M1.0
+EQ      %VW148, W#2
+S       %M6.6
 (* Network 20 *)
-LD    %M1.1
-ST   %V302.1
+LD      %M6.5
+OR      %M6.6
+ST      %M7.2
 (* Network 21 *)
-LD    %M1.2
-ST   %V302.2
+LD      %M6.5
+MOVE    I#0, %VW150
+MOVE    W#0, %VW304
+MOVE    W#0, %VW306
+MOVE    W#0, %VW310
+MOVE    W#0, %VW314
+S       %M1.0
+S       %M6.4
+R       %M1.1
+R       %M1.2
+R       %M1.3
+R       %M1.4
+R       %M1.5
+R       %M2.0
+R       %M2.1
+R       %M2.2
+R       %M2.3
+R       %M3.1
+R       %M3.2
+R       %M4.0
+R       %M4.1
+R       %M4.2
+R       %M4.3
+R       %M4.4
+R       %M4.5
+R       %M5.1
+R       %M5.2
+R       %M5.3
+R       %M5.4
+R       %M5.5
+R       %M5.6
+R       %M5.7
+R       %M6.0
+R       %M6.1
+R       %M6.2
+R       %M6.3
+R       %M7.1
+R       %M0.1
+R       %M0.2
+R       %M0.3
+R       %M0.4
+R       %M0.5
+R       %M0.6
+R       %M0.7
 (* Network 22 *)
-LD    %M1.3
-ST   %V302.3
+LD      %M6.6
+MOVE    I#1, %VW150
+MOVE    W#0, %VW304
+MOVE    W#0, %VW306
+MOVE    W#0, %VW310
+MOVE    W#0, %VW314
+S       %M1.0
+S       %M6.4
+R       %M1.1
+R       %M1.2
+R       %M1.3
+R       %M1.4
+R       %M1.5
+R       %M2.0
+R       %M2.1
+R       %M2.2
+R       %M2.3
+R       %M3.1
+R       %M3.2
+R       %M4.0
+R       %M4.1
+R       %M4.2
+R       %M4.3
+R       %M4.4
+R       %M4.5
+R       %M5.1
+R       %M5.2
+R       %M5.3
+R       %M5.4
+R       %M5.5
+R       %M5.6
+R       %M5.7
+R       %M6.0
+R       %M6.1
+R       %M6.2
+R       %M6.3
+R       %M7.1
+R       %M0.1
+R       %M0.2
+R       %M0.3
+R       %M0.4
+R       %M0.5
+R       %M0.6
+R       %M0.7
 (* Network 23 *)
-LD    %M1.4
-ST   %V302.4
+LD      %M6.4
+ANDN    %I0.1
+ANDN    %I0.2
+EQ      %VW148, W#0
+S       %M6.2
+S       %M1.4
+S       %M7.0
+R       %M6.4
+R       %M1.0
 (* Network 24 *)
-LD    %M1.5
-ST   %V302.5
+LD      %M6.4
+AND     %I0.1
+AND     %I0.2
+EQ      %VW148, W#0
+S       %M6.2
+S       %M1.4
+S       %M7.0
+R       %M6.4
+R       %M1.0
 (* Network 25 *)
-LD    %M2.2
-ST   %V302.6
+LD      %M6.4
+AND     %M6.1
+S       %M6.3
+S       %M1.5
+S       %M7.0
+R       %M6.4
+R       %M1.0
+MOVE    W#0, %VW148
 (* Network 26 *)
-LD    %M2.3
-ST   %V302.7
+LDN     %M1.0
+ST      %Q0.3
 (* Network 27 *)
-LD    %M3.1
-ST   %V303.0
+LD      %M1.1
+TON     T1, 300
+ST      %M0.2
 (* Network 28 *)
-LD    %M3.2
-ST   %V303.1
+LD      %M1.1
+AND     %M0.2
+ANDN    %M0.1
+ST      %M0.3
 (* Network 29 *)
-LD    %Q0.3
-ST   %V303.2
+LD      %M0.3
+S       %M0.1
 (* Network 30 *)
-LD    %M0.6
-ST   %V303.3
+LD      %M1.2
+TON     T0, 3000
+ST      %M0.6
+(* Network 31 *)
+LD      %M1.2
+AND     %M0.6
+ST      %M0.5
+(* Network 32 *)
+LD      %M0.5
+MOVE    %VD184, %VD188
+R       %M1.2
+S       %M1.3
+R       %M2.0
+R       %M2.1
+R       %M3.1
+R       %M3.2
+(* Network 33 *)
+LD      %M0.3
+OR      %M0.5
+ST      %M0.7
+(* Network 34 *)
+LD      %SM0.0
+PABS    0, %M0.7, %VW108, %VD104, %VW110, %VD188, %M2.0, %M2.1, %VB304
+(* Network 35 *)
+LD      %SM0.0
+PREL    0, %M4.5, %VW140, %VD136, %VW142, %VD192, %M4.0, %M4.1, %VB306
+(* Network 36 *)
+LD      %SM0.0
+PHOME   0, %M5.1, %I0.0, %M5.0, %VW114, %VW116, %VW118, %VD120, %VW124, %M5.2, %M5.3, %VB310
+(* Network 37 *)
+LD      %M6.4
+PJOG    0, %M6.4, %VD152, %VW150, %M6.0, %M6.1, %VB314
+(* Network 38 *)
+LD      %SM0.0
+PSTOP   0, %M7.0, %M7.1, %VB315
+(* Network 39 *)
+LD      %M5.6
+AND     %M5.2
+ST      %M5.7
+(* Network 40 *)
+LD      %M5.7
+ST      %SM201.6
+(* Network 41 *)
+LD      %M1.1
+AND     %M0.1
+AND     %M2.0
+EQ      %VD200, %VD180
+S       %M2.2
+S       %M1.2
+R       %M1.1
+(* Network 42 *)
+LD      %M1.1
+AND     %M0.1
+AND     %M2.1
+S       %M2.3
+S       %M1.5
+R       %M1.2
+R       %M1.3
+R       %M1.0
+R       %M1.1
+(* Network 43 *)
+LD      %M1.3
+AND     %M2.0
+EQ      %VD200, %VD184
+S       %M3.1
+S       %M1.4
+R       %M1.0
+R       %M1.3
+(* Network 44 *)
+LD      %M1.3
+AND     %M2.1
+S       %M3.2
+S       %M1.5
+R       %M1.0
+R       %M1.3
+(* Network 45 *)
+LD      %M4.4
+AND     %M4.0
+S       %M4.2
+S       %M1.4
+R       %M1.0
+R       %M4.4
+(* Network 46 *)
+LD      %M4.4
+AND     %M4.1
+S       %M4.3
+S       %M1.5
+R       %M1.0
+R       %M4.4
+(* Network 47 *)
+LD      %M5.6
+AND     %M5.2
+S       %M5.4
+S       %M1.4
+R       %M1.0
+R       %M5.6
+(* Network 48 *)
+LD      %M5.6
+AND     %M5.3
+S       %M5.5
+S       %M1.5
+R       %M1.0
+R       %M5.6
+(* Network 49 *)
+LD      %SM0.0
+MOVE    %SMD212, %VD200
+(* Network 50 *)
+LD      %M1.0
+ST      %V302.0
+(* Network 51 *)
+LD      %M1.1
+ST      %V302.1
+(* Network 52 *)
+LD      %M1.2
+ST      %V302.2
+(* Network 53 *)
+LD      %M1.3
+ST      %V302.3
+(* Network 54 *)
+LD      %M1.4
+ST      %V302.4
+(* Network 55 *)
+LD      %M1.5
+ST      %V302.5
+(* Network 56 *)
+LD      %M2.2
+ST      %V302.6
+(* Network 57 *)
+LD      %M2.3
+ST      %V302.7
+(* Network 58 *)
+LD      %M3.1
+ST      %V303.0
+(* Network 59 *)
+LD      %M3.2
+ST      %V303.1
+(* Network 60 *)
+LD      %M1.0
+ST      %V303.2
+(* Network 61 *)
+LD      %M0.6
+ST      %V303.3
+(* Network 62 *)
+LD      %M4.4
+ST      %V303.4
+(* Network 63 *)
+LD      %M4.2
+ST      %V303.5
+(* Network 64 *)
+LD      %M4.3
+ST      %V303.6
+(* Network 65 *)
+LD      %SM0.0
+ST      %V303.7
+(* Network 66 *)
+LD      %M5.6
+ST      %V308.0
+(* Network 67 *)
+LD      %M5.4
+ST      %V308.1
+(* Network 68 *)
+LD      %M5.5
+ST      %V308.2
+(* Network 69 *)
+LD      %I0.0
+ST      %V308.3
+(* Network 70 *)
+LD      %SM0.0
+NE      %VW116, I#0
+ST      %V308.4
+(* Network 71 *)
+LD      %M5.7
+ST      %V308.5
+(* Network 72 *)
+LD      %M6.4
+ST      %V312.0
+(* Network 73 *)
+LD      %M6.2
+ST      %V312.1
+(* Network 74 *)
+LD      %M6.3
+ST      %V312.2
+(* Network 75 *)
+LD      %SM0.0
+NE      %VW150, I#0
+ST      %V312.3
+(* Network 76 *)
+LD      %I0.1
+ST      %V312.4
+(* Network 77 *)
+LD      %I0.2
+ST      %V312.5
+(* Network 78 *)
+LD      %M6.7
+ST      %V312.6
+(* Network 79 *)
+LD      %M7.1
+ST      %V312.7
+(* Network 80 *)
+LD      %M0.3
+ST      %V307.0
+(* Network 81 *)
+LD      %M2.0
+ST      %V307.1
+(* Network 82 *)
+LD      %M2.1
+ST      %V307.2
+(* Network 83 *)
+LD      %M0.5
+ST      %V307.3
+(* Network 84 *)
+LD      %M3.1
+ST      %V307.4
+(* Network 85 *)
+LD      %M3.2
+ST      %V307.5
+(* Network 86 *)
+LD      %SM66.7
+ST      %V307.6
+(* Network 87 *)
+LD      %Q0.3
+ST      %V307.7
 END
+
