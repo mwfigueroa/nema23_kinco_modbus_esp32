@@ -33,16 +33,18 @@ Nota critica: `%Q0.3` es DIR del motor 2. No usarlo como enable. Los enables rea
 ## 2. Arquitectura del Programa
 
 El programa no usa la palabra de control vieja `40070` ni el esquema antiguo `40051/40101`.
-El ESP32 dispara acciones escribiendo valores distintos de cero en registros dedicados:
+El ESP32 dispara acciones escribiendo parametros y luego un comando dedicado:
 
 ```text
-PABS absoluto: escribir destino distinto de 0
+PABS absoluto: escribir destino en VD y luego escribir 1 en Cmd_PabsStart
 HOME:          escribir comando distinto de 0
 PREL relativo: escribir distancia distinta de 0
 JOG:           escribir 1 forward, 2 backward, 0 stop
 ```
 
-El PLC limpia los registros de comando al capturarlos, habilita el driver mientras dura el movimiento y reporta estado por words de diagnostico.
+El destino PABS puede ser `0`. El PLC limpia el registro de start al capturarlo,
+habilita el driver mientras dura el movimiento y reporta estado por words de
+diagnostico.
 
 ## 3. Mapa Modbus - Motor 1
 
@@ -50,10 +52,11 @@ El PLC limpia los registros de comando al capturarlos, habilita el driver mientr
 
 | Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| `40151-40152` | `%VD100` | DINT | Destino PABS; distinto de 0 arranca ciclo ida-vuelta |
+| `40151-40152` | `%VD100` | DINT | Destino PABS absoluto; puede ser `0` |
 | `40153-40154` | `%VD104` | DWORD | Frecuencia maxima PABS |
 | `40155` | `%VW108` | WORD | Frecuencia minima PABS |
 | `40156` | `%VW110` | WORD | Tiempo acel/decel PABS |
+| `40164` | `%VW126` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
 | `40157` | `%VW112` | WORD | Comando HOME; distinto de 0 arranca PHOME |
 | `40158` | `%VW114` | INT | Modo HOME, `1` solo sensor HOME |
 | `40159` | `%VW116` | INT | Direccion HOME, `0` forward, `1` backward |
@@ -87,10 +90,11 @@ El PLC limpia los registros de comando al capturarlos, habilita el driver mientr
 
 | Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| `40301-40302` | `%VD400` | DINT | Destino PABS; distinto de 0 arranca ciclo ida-vuelta |
+| `40301-40302` | `%VD400` | DINT | Destino PABS absoluto; puede ser `0` |
 | `40303-40304` | `%VD404` | DWORD | Frecuencia maxima PABS |
 | `40305` | `%VW408` | WORD | Frecuencia minima PABS |
 | `40306` | `%VW410` | WORD | Tiempo acel/decel PABS |
+| `40314` | `%VW426` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
 | `40307` | `%VW412` | WORD | Comando HOME; distinto de 0 arranca PHOME |
 | `40308` | `%VW414` | INT | Modo HOME, `1` solo sensor HOME |
 | `40309` | `%VW416` | INT | Direccion HOME, `0` forward, `1` backward |
@@ -125,9 +129,11 @@ Algunas librerias Modbus usan direccion base 0:
 | Modbus | Address base 0 |
 |---:|---:|
 | `40151` | `150` |
+| `40164` | `163` |
 | `40201` | `200` |
 | `40252` | `251` |
 | `40301` | `300` |
+| `40314` | `313` |
 | `40351` | `350` |
 | `40402` | `401` |
 
@@ -138,15 +144,15 @@ Motor 1 usa `%VW302`; motor 2 usa `%VW602`.
 | Bit | Motor 1 | Motor 2 | Significado |
 |---:|---|---|---|
 | 0 | `%V302.0` | `%V602.0` | CycleActive |
-| 1 | `%V302.1` | `%V602.1` | MoveOutActive |
-| 2 | `%V302.2` | `%V602.2` | WaitReturnActive |
-| 3 | `%V302.3` | `%V602.3` | ReturnActive |
+| 1 | `%V302.1` | `%V602.1` | PabsActive |
+| 2 | `%V302.2` | `%V602.2` | Reservado, antes WaitReturnActive |
+| 3 | `%V302.3` | `%V602.3` | Reservado, antes ReturnActive |
 | 4 | `%V302.4` | `%V602.4` | CycleDone |
 | 5 | `%V302.5` | `%V602.5` | CycleErr |
-| 6 | `%V302.6` | `%V602.6` | PabsOutDone |
+| 6 | `%V302.6` | `%V602.6` | PabsDone |
 | 7 | `%V302.7` | `%V602.7` | PabsOutErr |
-| 8 | `%V303.0` | `%V603.0` | PabsReturnDone |
-| 9 | `%V303.1` | `%V603.1` | PabsReturnErr |
+| 8 | `%V303.0` | `%V603.0` | Reservado, antes PabsReturnDone |
+| 9 | `%V303.1` | `%V603.1` | Reservado, antes PabsReturnErr |
 | 10 | `%V303.2` | `%V603.2` | EnableOut logico |
 | 11 | `%V303.3` | `%V603.3` | WaitDone |
 | 12 | `%V303.4` | `%V603.4` | PrelActive |
@@ -189,7 +195,7 @@ El programa actual tiene networks `0..170`.
 | Bloque | Motor 1 | Motor 2 |
 |---|---|---|
 | Marcas internas | `%M0.x..%M7.x` | `%M10.x..%M17.x` |
-| Timers | `T1` enable, `T0` espera retorno | `T3` enable, `T2` espera retorno |
+| Timers | `T1` enable PABS | `T3` enable PABS |
 | PABS | `PABS 0` | `PABS 1` |
 | PREL | `PREL 0` | `PREL 1` |
 | PHOME | `PHOME 0` HOME `%I0.0` | `PHOME 1` HOME `%I0.3` |
@@ -213,6 +219,7 @@ Comandos:
 
 ```json
 {"cmd":"kinco_pabs","axis":0,"arg":5000,"speed":2000,"minf":300,"time":300}
+{"cmd":"kinco_pabs","axis":0,"arg":0,"speed":2000,"minf":300,"time":300}
 {"cmd":"kinco_pabs","axis":1,"arg":5000,"speed":2000,"minf":300,"time":300}
 {"cmd":"kinco_prel","axis":1,"arg":7000,"speed":2000,"minf":300,"time":300}
 {"cmd":"kinco_home","axis":1,"dir":0,"mode":1,"speed":1000,"minf":200,"time":300}

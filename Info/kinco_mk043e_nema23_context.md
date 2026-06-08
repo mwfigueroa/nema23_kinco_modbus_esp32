@@ -16,6 +16,7 @@ del ESP32:
 | JOG backward | `%I0.2` | `%I0.5` |
 | Posicion Modbus | `40201-40202` / `%VD200` | `40351-40352` / `%VD500` |
 | Estado ciclo | `40252` / `%VW302` | `40402` / `%VW602` |
+| Start PABS simple | `40164` / `%VW126` | `40314` / `%VW426` |
 
 Documentacion vigente:
 
@@ -24,7 +25,8 @@ Documentacion vigente:
 - `README.md`
 
 No usar el esquema historico de palabra de control `40051/40101` ni `%Q0.3`
-como enable. En el programa final `%Q0.3` es direccion del motor 2.
+como enable. En el programa final `%Q0.3` es direccion del motor 2. PABS ya no
+hace ida-vuelta: el destino puede ser `0` y se dispara con `40164` o `40314`.
 
 ## Objetivo
 

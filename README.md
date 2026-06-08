@@ -13,7 +13,7 @@ Estado validado en banco el 2026-06-08: dos motores operando desde la
 interfaz web del ESP32 con selector Motor 1 / Motor 2.
 
 ```text
-idle -> habilita driver -> PABS a destino -> espera 3 s -> PABS a 0 -> deshabilita
+idle -> habilita driver -> PABS a destino absoluto -> deshabilita
 idle -> habilita driver -> PHOME hasta sensor HOME -> reset contador -> deshabilita
 idle -> habilita driver -> PREL +/-distancia -> deshabilita
 ```
@@ -94,8 +94,7 @@ Funciones disponibles:
 |---|---|
 | Selector Motor | Elige `axis=0` o `axis=1` y actualiza etiquetas/registros |
 | Posicion actual | Lee `40201-40202` para motor 1 o `40351-40352` para motor 2 |
-| `+5000 y volver a 0` | Escribe el destino PABS del motor seleccionado; la PLC hace el ciclo completo |
-| `-5000 y volver a 0` | Igual que arriba con destino negativo |
+| `Ir a +5000` / `Ir a 0` | Escribe destino PABS y start del motor seleccionado |
 | `HOME forward/backward` | Escribe parametros HOME y dispara PHOME del motor seleccionado |
 | `PREL +/-` | Ejecuta movimiento relativo sin vuelta automatica |
 | `JOG forward/backward` | Mantiene JOG mientras se pulsa y envia stop al soltar |
@@ -122,13 +121,19 @@ Leer estado:
 {"cmd":"kinco_status"}
 ```
 
-Enviar un ciclo a `+5000` pasos y vuelta automatica a `0`:
+Enviar PABS simple a `+5000` pasos:
 
 ```json
 {"cmd":"kinco_pabs","axis":0,"arg":5000,"speed":2000,"minf":300,"time":300}
 ```
 
-Enviar un ciclo a `-5000` pasos:
+Enviar PABS simple a `0`:
+
+```json
+{"cmd":"kinco_pabs","axis":0,"arg":0,"speed":2000,"minf":300,"time":300}
+```
+
+Enviar PABS simple a `-5000` pasos:
 
 ```json
 {"cmd":"kinco_pabs","axis":0,"arg":-5000,"speed":2000,"minf":300,"time":300}
@@ -165,9 +170,9 @@ Mover JOG forward y detenerlo:
 {"cmd":"kinco_jog_stop","axis":1}
 ```
 
-En `kinco_pabs` y `kinco_prel`, `arg` no puede ser `0`, porque los registros
-de comando en `0` se usan como idle. En `kinco_home`, `arg=0` significa
-forward y `arg=1` backward.
+En `kinco_pabs`, `arg=0` es valido y ordena ir a posicion absoluta cero.
+En `kinco_prel`, `arg` no puede ser `0`, porque no habria movimiento relativo.
+En `kinco_home`, `arg=0` significa forward y `arg=1` backward.
 
 ### Ejemplo PowerShell
 
@@ -201,10 +206,11 @@ Motor 1 (`axis=0`):
 
 | MODBUS | Kinco | Tipo | Funcion |
 |---:|---|---|---|
-| 40151-40152 | `%VD100` | DINT | Comando de pasos destino; distinto de `0` arranca ciclo |
+| 40151-40152 | `%VD100` | DINT | Destino PABS absoluto; puede ser `0` |
 | 40153-40154 | `%VD104` | DWORD | Frecuencia maxima PABS |
 | 40155 | `%VW108` | WORD | Frecuencia minima PABS |
 | 40156 | `%VW110` | WORD | Tiempo de aceleracion/desaceleracion |
+| 40164 | `%VW126` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
 | 40157 | `%VW112` | WORD | Comando HOME; distinto de `0` arranca PHOME |
 | 40158 | `%VW114` | WORD | Modo HOME; `1` usa solo sensor HOME |
 | 40159 | `%VW116` | WORD | Direccion HOME; `0` forward, `1` backward |
@@ -223,10 +229,11 @@ Motor 2 (`axis=1`):
 
 | MODBUS | Kinco | Tipo | Funcion |
 |---:|---|---|---|
-| 40301-40302 | `%VD400` | DINT | Comando de pasos destino; distinto de `0` arranca ciclo |
+| 40301-40302 | `%VD400` | DINT | Destino PABS absoluto; puede ser `0` |
 | 40303-40304 | `%VD404` | DWORD | Frecuencia maxima PABS |
 | 40305 | `%VW408` | WORD | Frecuencia minima PABS |
 | 40306 | `%VW410` | WORD | Tiempo de aceleracion/desaceleracion |
+| 40314 | `%VW426` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
 | 40307 | `%VW412` | WORD | Comando HOME; distinto de `0` arranca PHOME |
 | 40308 | `%VW414` | WORD | Modo HOME; `1` usa solo sensor HOME |
 | 40309 | `%VW416` | WORD | Direccion HOME; `0` forward, `1` backward |
@@ -246,7 +253,7 @@ Motor 2 (`axis=1`):
 | Kinco | Tipo | Funcion |
 |---|---|---|
 | `%VD180` | DINT | Copia interna del destino recibido |
-| `%VD184` | DINT | Destino de vuelta a cero |
+| `%VD184` | DINT | Reservado historico, antes destino de vuelta a cero |
 | `%VD188` | DINT | Destino activo usado por la unica instruccion `PABS` |
 | `%VD192` | DINT | Distancia activa usada por la instruccion `PREL` |
 | `%M0.7` | BOOL | Pulso comun de arranque PABS |
@@ -294,6 +301,7 @@ Si el master usa direcciones base 0:
 40160       -> address 159
 40161-40162 -> address 160, quantity 2
 40163       -> address 162
+40164       -> address 163
 40167-40168 -> address 166, quantity 2
 40169-40170 -> address 168, quantity 2
 40171       -> address 170
@@ -317,6 +325,7 @@ Si el master usa direcciones base 0:
 40310       -> address 309
 40311-40312 -> address 310, quantity 2
 40313       -> address 312
+40314       -> address 313
 40317-40318 -> address 316, quantity 2
 40319-40320 -> address 318, quantity 2
 40321       -> address 320
@@ -340,15 +349,15 @@ La tabla muestra motor 1; para motor 2 usar los mismos bits en `%V602/%V603`.
 | Bit | Direccion | Nombre | Significado |
 |---:|---|---|---|
 | 0 | `%V302.0` | CycleActive | Ciclo activo, driver habilitado |
-| 1 | `%V302.1` | MoveOutActive | Movimiento de ida activo |
-| 2 | `%V302.2` | WaitReturnActive | Esperando 3 s antes de volver |
-| 3 | `%V302.3` | ReturnActive | Movimiento de vuelta activo |
-| 4 | `%V302.4` | CycleDone | Ciclo completado correctamente |
+| 1 | `%V302.1` | PabsActive | Movimiento absoluto activo |
+| 2 | `%V302.2` | Reservado | Antes WaitReturnActive |
+| 3 | `%V302.3` | Reservado | Antes ReturnActive |
+| 4 | `%V302.4` | CycleDone | Movimiento completado correctamente |
 | 5 | `%V302.5` | CycleErr | Error de ciclo |
-| 6 | `%V302.6` | PabsOutDone | PABS de ida completado |
-| 7 | `%V302.7` | PabsOutErr | Error en PABS de ida |
-| 8 | `%V303.0` | PabsReturnDone | PABS de vuelta completado |
-| 9 | `%V303.1` | PabsReturnErr | Error en PABS de vuelta |
+| 6 | `%V302.6` | PabsDone | PABS completado |
+| 7 | `%V302.7` | PabsErr | Error en PABS |
+| 8 | `%V303.0` | Reservado | Antes PabsReturnDone |
+| 9 | `%V303.1` | Reservado | Antes PabsReturnErr |
 | 10 | `%V303.2` | EnableOut | Driver habilitado logico; salida fisica activa-bajo |
 | 11 | `%V303.3` | WaitDone | Timer de espera terminado |
 | 12 | `%V303.4` | PrelActive | Movimiento relativo activo |

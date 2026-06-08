@@ -51,18 +51,18 @@ Los enables reales del programa final son `%Q0.4` y `%Q0.5`.
 ## 4. Arquitectura del Programa
 
 El ESP32 no envia una palabra de control general. En su lugar escribe
-parametros y luego un valor distinto de cero en el registro de comando
-correspondiente:
+parametros y luego el registro de comando correspondiente:
 
 ```text
-PABS absoluto: destino distinto de 0
+PABS absoluto: destino en VD + escribir 1 en Cmd_PabsStart
 HOME:          comando distinto de 0
 PREL relativo: distancia distinta de 0
 JOG:           1 forward, 2 backward, 0 stop
 ```
 
-El PLC captura el comando, limpia el registro, habilita el driver durante el
-movimiento y publica estado/errores en registros de diagnostico.
+El destino PABS puede ser `0`. El PLC captura el start PABS, limpia el
+registro de start, habilita el driver durante el movimiento y publica
+estado/errores en registros de diagnostico.
 
 ## 5. Mapa Modbus Motor 1 / AXIS 0
 
@@ -70,10 +70,11 @@ movimiento y publica estado/errores en registros de diagnostico.
 
 | Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| `40151-40152` | `%VD100` | DINT | Destino PABS; distinto de `0` arranca ciclo ida-vuelta |
+| `40151-40152` | `%VD100` | DINT | Destino PABS absoluto; puede ser `0` |
 | `40153-40154` | `%VD104` | DWORD | Frecuencia maxima PABS |
 | `40155` | `%VW108` | WORD | Frecuencia minima PABS |
 | `40156` | `%VW110` | WORD | Tiempo acel/decel PABS |
+| `40164` | `%VW126` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
 | `40157` | `%VW112` | WORD | Comando HOME; distinto de `0` arranca PHOME |
 | `40158` | `%VW114` | INT | Modo HOME; `1` solo sensor HOME |
 | `40159` | `%VW116` | INT | Direccion HOME; `0` forward, `1` backward |
@@ -107,10 +108,11 @@ movimiento y publica estado/errores en registros de diagnostico.
 
 | Modbus | PLC | Tipo | Funcion |
 |---:|---|---|---|
-| `40301-40302` | `%VD400` | DINT | Destino PABS; distinto de `0` arranca ciclo ida-vuelta |
+| `40301-40302` | `%VD400` | DINT | Destino PABS absoluto; puede ser `0` |
 | `40303-40304` | `%VD404` | DWORD | Frecuencia maxima PABS |
 | `40305` | `%VW408` | WORD | Frecuencia minima PABS |
 | `40306` | `%VW410` | WORD | Tiempo acel/decel PABS |
+| `40314` | `%VW426` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
 | `40307` | `%VW412` | WORD | Comando HOME; distinto de `0` arranca PHOME |
 | `40308` | `%VW414` | INT | Modo HOME; `1` solo sensor HOME |
 | `40309` | `%VW416` | INT | Direccion HOME; `0` forward, `1` backward |
@@ -147,6 +149,7 @@ movimiento y publica estado/errores en registros de diagnostico.
 | `40155` | `154` |
 | `40156` | `155` |
 | `40157` | `156` |
+| `40164` | `163` |
 | `40167` | `166` |
 | `40175` | `174` |
 | `40201` | `200` |
@@ -156,6 +159,7 @@ movimiento y publica estado/errores en registros de diagnostico.
 | `40305` | `304` |
 | `40306` | `305` |
 | `40307` | `306` |
+| `40314` | `313` |
 | `40317` | `316` |
 | `40325` | `324` |
 | `40351` | `350` |
@@ -168,15 +172,15 @@ Motor 1 usa `%VW302`; motor 2 usa `%VW602`.
 | Bit | Motor 1 | Motor 2 | Significado |
 |---:|---|---|---|
 | 0 | `%V302.0` | `%V602.0` | CycleActive |
-| 1 | `%V302.1` | `%V602.1` | MoveOutActive |
-| 2 | `%V302.2` | `%V602.2` | WaitReturnActive |
-| 3 | `%V302.3` | `%V602.3` | ReturnActive |
+| 1 | `%V302.1` | `%V602.1` | PabsActive |
+| 2 | `%V302.2` | `%V602.2` | Reservado, antes WaitReturnActive |
+| 3 | `%V302.3` | `%V602.3` | Reservado, antes ReturnActive |
 | 4 | `%V302.4` | `%V602.4` | CycleDone |
 | 5 | `%V302.5` | `%V602.5` | CycleErr |
-| 6 | `%V302.6` | `%V602.6` | PabsOutDone |
-| 7 | `%V302.7` | `%V602.7` | PabsOutErr |
-| 8 | `%V303.0` | `%V603.0` | PabsReturnDone |
-| 9 | `%V303.1` | `%V603.1` | PabsReturnErr |
+| 6 | `%V302.6` | `%V602.6` | PabsDone |
+| 7 | `%V302.7` | `%V602.7` | PabsErr |
+| 8 | `%V303.0` | `%V603.0` | Reservado, antes PabsReturnDone |
+| 9 | `%V303.1` | `%V603.1` | Reservado, antes PabsReturnErr |
 | 10 | `%V303.2` | `%V603.2` | EnableOut logico |
 | 11 | `%V303.3` | `%V603.3` | WaitDone |
 | 12 | `%V303.4` | `%V603.4` | PrelActive |

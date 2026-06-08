@@ -17,6 +17,7 @@ MOVE    DI#0, Cmd_TargetSteps
 MOVE    DW#2000, PabsMaxF
 MOVE    W#300, PabsMinF
 MOVE    W#300, PabsTime
+MOVE    W#0, Cmd_PabsStart
 MOVE    W#0, Cmd_Home
 MOVE    I#1, HomeMode
 MOVE    I#0, HomeDir
@@ -38,6 +39,7 @@ MOVE    DI#0, M2_Cmd_TargetSteps
 MOVE    DW#2000, M2_PabsMaxF
 MOVE    W#300, M2_PabsMinF
 MOVE    W#300, M2_PabsTime
+MOVE    W#0, M2_Cmd_PabsStart
 MOVE    W#0, M2_Cmd_Home
 MOVE    I#1, M2_HomeMode
 MOVE    I#0, M2_HomeDir
@@ -164,14 +166,13 @@ R    %M17.2
 (* Network 5 *)
 LD    %SM0.0
 ANDN    %M1.0
-NE    Cmd_TargetSteps, DI#0
+NE    Cmd_PabsStart, W#0
 ST   %M0.4
 (* Network 6 *)
 LD    %M0.4
 MOVE    Cmd_TargetSteps, MoveTarget
-MOVE    DI#0, ReturnTarget
 MOVE    Cmd_TargetSteps, ActivePabsTarget
-MOVE    DI#0, Cmd_TargetSteps
+MOVE    W#0, Cmd_PabsStart
 MOVE    DI#0, Cmd_RelSteps
 MOVE    W#0, Cmd_Home
 MOVE    W#0, Cmd_Jog
@@ -232,7 +233,7 @@ ST   %M4.5
 LD    %M4.5
 MOVE    Cmd_RelSteps, ActivePrelDist
 MOVE    DI#0, Cmd_RelSteps
-MOVE    DI#0, Cmd_TargetSteps
+MOVE    W#0, Cmd_PabsStart
 MOVE    W#0, Cmd_Home
 MOVE    W#0, Cmd_Jog
 MOVE    W#0, PabsError_Word
@@ -291,7 +292,7 @@ ST   %M5.1
 (* Network 12 *)
 LD    %M5.1
 MOVE    W#0, Cmd_Home
-MOVE    DI#0, Cmd_TargetSteps
+MOVE    W#0, Cmd_PabsStart
 MOVE    DI#0, Cmd_RelSteps
 MOVE    W#0, Cmd_Jog
 MOVE    W#0, PabsError_Word
@@ -381,6 +382,7 @@ ST   %M7.2
 (* Network 21 *)
 LD    %M6.5
 MOVE    I#0, JogDir
+MOVE    W#0, Cmd_PabsStart
 MOVE    W#0, PabsError_Word
 MOVE    W#0, PrelError_Word
 MOVE    W#0, HomeError_Word
@@ -426,6 +428,7 @@ R    %M0.7
 (* Network 22 *)
 LD    %M6.6
 MOVE    I#1, JogDir
+MOVE    W#0, Cmd_PabsStart
 MOVE    W#0, PabsError_Word
 MOVE    W#0, PrelError_Word
 MOVE    W#0, HomeError_Word
@@ -559,9 +562,9 @@ ST   %SM201.6
 LD    %M1.1
 AND    %M0.1
 AND    %M2.0
-EQ    Status_PosActual, MoveTarget
 S    %M2.2
-S    %M1.2
+S    %M1.4
+R    %M1.0
 R    %M1.1
 (* Network 42 *)
 LD    %M1.1
@@ -738,14 +741,13 @@ ST   %V307.7
 (* Network 88 *)
 LD    %SM0.0
 ANDN    %M11.0
-NE    M2_Cmd_TargetSteps, DI#0
+NE    M2_Cmd_PabsStart, W#0
 ST   %M10.4
 (* Network 89 *)
 LD    %M10.4
 MOVE    M2_Cmd_TargetSteps, M2_MoveTarget
-MOVE    DI#0, M2_ReturnTarget
 MOVE    M2_Cmd_TargetSteps, M2_ActivePabsTarget
-MOVE    DI#0, M2_Cmd_TargetSteps
+MOVE    W#0, M2_Cmd_PabsStart
 MOVE    DI#0, M2_Cmd_RelSteps
 MOVE    W#0, M2_Cmd_Home
 MOVE    W#0, M2_Cmd_Jog
@@ -806,7 +808,7 @@ ST   %M14.5
 LD    %M14.5
 MOVE    M2_Cmd_RelSteps, M2_ActivePrelDist
 MOVE    DI#0, M2_Cmd_RelSteps
-MOVE    DI#0, M2_Cmd_TargetSteps
+MOVE    W#0, M2_Cmd_PabsStart
 MOVE    W#0, M2_Cmd_Home
 MOVE    W#0, M2_Cmd_Jog
 MOVE    W#0, M2_PabsError_Word
@@ -865,7 +867,7 @@ ST   %M15.1
 (* Network 95 *)
 LD    %M15.1
 MOVE    W#0, M2_Cmd_Home
-MOVE    DI#0, M2_Cmd_TargetSteps
+MOVE    W#0, M2_Cmd_PabsStart
 MOVE    DI#0, M2_Cmd_RelSteps
 MOVE    W#0, M2_Cmd_Jog
 MOVE    W#0, M2_PabsError_Word
@@ -955,6 +957,7 @@ ST   %M17.2
 (* Network 104 *)
 LD    %M16.5
 MOVE    I#0, M2_JogDir
+MOVE    W#0, M2_Cmd_PabsStart
 MOVE    W#0, M2_PabsError_Word
 MOVE    W#0, M2_PrelError_Word
 MOVE    W#0, M2_HomeError_Word
@@ -1000,6 +1003,7 @@ R    %M10.7
 (* Network 105 *)
 LD    %M16.6
 MOVE    I#1, M2_JogDir
+MOVE    W#0, M2_Cmd_PabsStart
 MOVE    W#0, M2_PabsError_Word
 MOVE    W#0, M2_PrelError_Word
 MOVE    W#0, M2_HomeError_Word
@@ -1133,9 +1137,9 @@ ST   %SM231.6
 LD    %M11.1
 AND    %M10.1
 AND    %M12.0
-EQ    M2_Status_PosActual, M2_MoveTarget
 S    %M12.2
-S    %M11.2
+S    %M11.4
+R    %M11.0
 R    %M11.1
 (* Network 125 *)
 LD    %M11.1

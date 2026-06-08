@@ -71,6 +71,7 @@ typedef struct {
     uint16_t pabs_maxf;
     uint16_t pabs_minf;
     uint16_t pabs_time;
+    uint16_t pabs_start;
     uint16_t home_cmd;
     uint16_t home_mode;
     uint16_t home_dir;
@@ -144,7 +145,7 @@ static const kinco_axis_map_t s_kinco_axis[KINCO_AXIS_COUNT] = {
      * Campo control se pone a 0 porque este PLC no usa palabra de control.
      * Las direcciones aqui son base 0 para Modbus: 40001 -> 0.
      */
-    {0, 150, 152, 154, 155, 156, 157, 158, 159, 160, 162,
+    {0, 150, 152, 154, 155, 163, 156, 157, 158, 159, 160, 162,
      166, 168, 170, 171, 174, 175, 176, 251, 252, 200, 254, 255, 256, 257},
     /*
      * Motor 2 / AXIS=1:
@@ -155,7 +156,7 @@ static const kinco_axis_map_t s_kinco_axis[KINCO_AXIS_COUNT] = {
      * Posicion: 40351-40352 (%VD500, copia de %SMD242)
      * Estado: 40402-40408 (%VW602..%VW614)
      */
-    {0, 300, 302, 304, 305, 306, 307, 308, 309, 310, 312,
+    {0, 300, 302, 304, 305, 313, 306, 307, 308, 309, 310, 312,
      316, 318, 320, 321, 324, 325, 326, 401, 402, 350, 404, 405, 406, 407},
 };
 
@@ -476,10 +477,9 @@ static esp_err_t kinco_axis_pabs(int axis, int32_t target, uint32_t maxf,
         return ret;
     }
 
-    /* Si el programa PLC tiene palabra de control (control != 0),
-     * pulsar el bit de StartPABS. Si no (ej. Kinco_esp_Modbus_test_2),
-     * el propio write a pabs_pos dispara el ciclo automaticamente. */
-    if (m->control != 0) {
+    if (m->pabs_start != 0) {
+        ret = plc_write_single_register(m->pabs_start, 1, exception_code);
+    } else if (m->control != 0) {
         ret = kinco_axis_pulse_control(axis, KINCO_CMD_START_PABS, exception_code);
     }
     ESP_LOGD(TAG, "PABS comando enviado: axis=%d target=%ld result=%s exception=0x%02X",
@@ -923,8 +923,8 @@ static void kinco_status_response(int axis, char *resp, size_t resp_sz, const ch
     snprintf(resp, resp_sz,
              "{\"result\":\"%s\",\"cmd\":\"%s\",\"target\":\"kinco\",\"slave\":%u,"
              "\"axis\":%d,\"program\":\"" KINCO_PROGRAM_NAME "\","
-             "\"control_reg\":%u,\"command_reg\":%u,\"maxf_reg\":%u,\"minf_reg\":%u,"
-             "\"time_reg\":%u,\"home_cmd_reg\":%u,\"home_mode_reg\":%u,"
+              "\"control_reg\":%u,\"command_reg\":%u,\"maxf_reg\":%u,\"minf_reg\":%u,"
+              "\"time_reg\":%u,\"pabs_start_reg\":%u,\"home_cmd_reg\":%u,\"home_mode_reg\":%u,"
              "\"home_dir_reg\":%u,\"home_minf_reg\":%u,\"home_maxf_reg\":%u,"
              "\"home_time_reg\":%u,\"rel_reg\":%u,\"prel_maxf_reg\":%u,"
              "\"prel_minf_reg\":%u,\"prel_time_reg\":%u,"
@@ -961,9 +961,10 @@ static void kinco_status_response(int axis, char *resp, size_t resp_sz, const ch
              "\"plc_alive\":%u}}",
              ok ? "ok" : "error", cmd, KINCO_SLAVE_ID, axis,
              kinco_optional_modbus_reg(m->control),
-             kinco_modbus_reg(m->pabs_pos), kinco_modbus_reg(m->pabs_maxf),
-             kinco_modbus_reg(m->pabs_minf), kinco_modbus_reg(m->pabs_time),
-             kinco_modbus_reg(m->home_cmd), kinco_modbus_reg(m->home_mode),
+              kinco_modbus_reg(m->pabs_pos), kinco_modbus_reg(m->pabs_maxf),
+              kinco_modbus_reg(m->pabs_minf), kinco_modbus_reg(m->pabs_time),
+              kinco_modbus_reg(m->pabs_start),
+              kinco_modbus_reg(m->home_cmd), kinco_modbus_reg(m->home_mode),
              kinco_modbus_reg(m->home_dir), kinco_modbus_reg(m->home_minf),
              kinco_modbus_reg(m->home_maxf), kinco_modbus_reg(m->home_time),
              kinco_modbus_reg(m->prel_dist), kinco_modbus_reg(m->prel_maxf),
@@ -1092,8 +1093,7 @@ static bool kinco_status_cycle_busy(const kinco_axis_status_t *st)
 {
     return st && st->ok &&
            (((st->status_word & KINCO_CYCLE_BUSY_MASK) != 0) ||
-            st->command_steps != 0 ||
-            st->rel_steps != 0 ||
+             st->rel_steps != 0 ||
             st->home_cmd != 0 ||
             st->jog_cmd != 0 ||
             ((st->home_status_word & 0x0001) != 0) ||
@@ -1333,12 +1333,18 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
     if (strcmp(cmd, "kinco_clear_command") == 0) {
         uint16_t zero_target[2] = {0, 0};
         uint8_t exception_pabs = 0;
+        uint8_t exception_pabs_start = 0;
         uint8_t exception_prel = 0;
         uint8_t exception_home = 0;
         uint8_t exception_jog = 0;
         esp_err_t r_pabs = plc_write_holding_registers(s_kinco_axis[axis].pabs_pos,
                                                        zero_target, 2,
                                                        &exception_pabs);
+        esp_err_t r_pabs_start = ESP_OK;
+        if (s_kinco_axis[axis].pabs_start != 0) {
+            r_pabs_start = plc_write_single_register(s_kinco_axis[axis].pabs_start, 0,
+                                                     &exception_pabs_start);
+        }
         esp_err_t r_prel = ESP_OK;
         if (s_kinco_axis[axis].prel_dist != 0) {
             r_prel = plc_write_holding_registers(s_kinco_axis[axis].prel_dist,
@@ -1355,22 +1361,25 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
             r_jog = plc_write_single_register(s_kinco_axis[axis].jog_cmd, 0,
                                               &exception_jog);
         }
-        r = (r_pabs == ESP_OK && r_prel == ESP_OK &&
+        r = (r_pabs == ESP_OK && r_pabs_start == ESP_OK &&
+             r_prel == ESP_OK &&
              r_home == ESP_OK && r_jog == ESP_OK) ? ESP_OK : ESP_FAIL;
         kinco_axis_status_t st = {};
         esp_err_t sr = kinco_axis_read_fast_status(axis, &st);
         snprintf(resp, resp_sz,
                  "{\"result\":\"%s\",\"cmd\":\"%s\",\"write_pabs\":\"%s\","
-                 "\"write_prel\":\"%s\",\"write_home\":\"%s\",\"write_jog\":\"%s\","
-                 "\"exception_pabs\":%u,\"exception_prel\":%u,"
-                 "\"exception_home\":%u,\"exception_jog\":%u,"
+                 "\"write_pabs_start\":\"%s\",\"write_prel\":\"%s\","
+                 "\"write_home\":\"%s\",\"write_jog\":\"%s\","
+                 "\"exception_pabs\":%u,\"exception_pabs_start\":%u,"
+                 "\"exception_prel\":%u,\"exception_home\":%u,\"exception_jog\":%u,"
                  "\"status_read\":\"%s\",\"command_steps\":%ld,\"rel_steps\":%ld,"
                  "\"home_cmd\":%u,\"jog_cmd\":%u,"
                  "\"status\":%u,\"jog_status\":%u,\"plc_alive\":%u,\"pos\":%ld}",
                  r == ESP_OK ? "ok" : "error", cmd, esp_err_to_name(r_pabs),
-                 esp_err_to_name(r_prel), esp_err_to_name(r_home),
-                 esp_err_to_name(r_jog),
-                 exception_pabs, exception_prel, exception_home, exception_jog,
+                 esp_err_to_name(r_pabs_start), esp_err_to_name(r_prel),
+                 esp_err_to_name(r_home), esp_err_to_name(r_jog),
+                 exception_pabs, exception_pabs_start, exception_prel,
+                 exception_home, exception_jog,
                  esp_err_to_name(sr), (long)st.command_steps, (long)st.rel_steps,
                  (unsigned)st.home_cmd, (unsigned)st.jog_cmd,
                  st.status_word, st.jog_status_word,
@@ -1480,11 +1489,10 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
     }
 
     if (is_motion_cmd) {
-        if ((is_abs_motion_cmd && target_pos == 0) ||
-            (is_rel_motion_cmd && rel_delta == 0) ||
+        if ((is_rel_motion_cmd && rel_delta == 0) ||
             (is_jog_cmd && jog_speed_cmd == 0)) {
             snprintf(resp, resp_sz,
-                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"los pasos no pueden ser 0\"}",
+                     "{\"result\":\"error\",\"cmd\":\"%s\",\"msg\":\"los pasos relativos/JOG no pueden ser 0\"}",
                      cmd);
             return;
         }
@@ -1574,6 +1582,11 @@ static void dispatch_command(const char *json, char *resp, size_t resp_sz)
                  (long)snap.pos_after_cw, (long)snap.pos_final);
         return;
     } else if (strcmp(cmd, "kinco_auto_cycle") == 0) {
+        snprintf(resp, resp_sz,
+                 "{\"result\":\"error\",\"cmd\":\"%s\","
+                 "\"msg\":\"no soportado: PABS ahora es posicionamiento absoluto simple; usa kinco_pabs\"}",
+                 cmd);
+        return;
         /* MAIN_MAIN.ilp hace ida, espera 3 s y vuelta a 0 dentro de la PLC.
          * El ESP32 solo lanza un destino distinto de cero y monitorea estado. */
         int32_t cw_target = has_arg ? (int32_t)arg : KINCO_TEST_STEPS;
@@ -1858,9 +1871,10 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "<div class='counter'><div class='label' id='posLabel'>Posicion actual 40201</div><div class='big' id='pos'>0</div>"
         "<div class='muted' id='phase'>Sin lectura</div></div>"
         "<section><div class='row'>"
-        "<button class='move' onclick='startSteps(5000)'>+5000 y volver</button>"
-        "<button class='move' onclick='startSteps(30000)'>+30000 y volver</button>"
-        "<button class='move secondary' onclick='startSteps(-5000)'>-5000 y volver</button>"
+        "<button class='move' onclick='startSteps(5000)'>Ir a +5000</button>"
+        "<button class='move' onclick='startSteps(30000)'>Ir a +30000</button>"
+        "<button class='move secondary' onclick='startSteps(0)'>Ir a 0</button>"
+        "<button class='move secondary' onclick='startSteps(-5000)'>Ir a -5000</button>"
         "<button class='secondary' onclick='readStates(true)'>Leer estados</button>"
         "<button class='secondary' onclick='api({cmd:\"kinco_clear_command\"})'>Limpiar comandos</button>"
         "</div></section>"
@@ -1878,12 +1892,12 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "<button class='danger' onclick='jogStop(true)'>STOP JOG</button>"
         "</div><p class='muted'>JOG fisico: motor 1 I0.1/I0.2; motor 2 I0.4/I0.5. JOG web usa velocidad Max Hz.</p></section>"
         "<section><div class='row'>"
-        "<label>Pasos<input id='steps' type='number' value='5000' min='1' max='999999' step='1000'></label>"
+        "<label>Destino abs<input id='steps' type='number' value='5000' min='0' max='999999' step='1000'></label>"
         "<label>Max Hz<input id='maxf' type='number' value='2000' min='125' max='200000' step='100'></label>"
         "<label>Min Hz<input id='minf' type='number' value='300' min='125' max='65535' step='25'></label>"
         "<label>Accel<input id='time' type='number' value='300' min='1' max='65535' step='50'></label>"
-        "<button onclick='startCustom(1)'>Enviar +pasos</button>"
-        "<button onclick='startCustom(-1)'>Enviar -pasos</button>"
+        "<button onclick='startCustom(1)'>PABS +destino</button>"
+        "<button onclick='startCustom(-1)'>PABS -destino</button>"
         "<button onclick='startRelCustom(1)'>PREL +pasos</button>"
         "<button onclick='startRelCustom(-1)'>PREL -pasos</button>"
         "</div><p class='muted'>Motor 1 usa 40151/40157/40167/40175. Motor 2 usa 40301/40307/40317/40325.</p></section>"
@@ -1891,10 +1905,10 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "<div><strong>Registros</strong><div class='kv' id='regs'>Sin lectura</div></div>"
         "<div><strong id='bitsTitle'>Bits 40252</strong><div class='kv' id='bits'>Sin lectura</div></div>"
         "</div></section>"
-        "<section><strong>Respuesta</strong><pre class='status' id='log'>Listo</pre><div class='muted'>UI MAIN_MAIN test_2 v3 dos motores</div></section>"
+        "<section><strong>Respuesta</strong><pre class='status' id='log'>Listo</pre><div class='muted'>UI MAIN_MAIN test_2 v4 PABS simple</div></section>"
         "</main><script>"
         "let running=false,pollId=null,pollTicks=0,targetAbs=0,statusBusy=false,fastBusy=false,cmdBusy=false,jogHeld=false,axis=0,meta={};"
-        "function q(id){return document.getElementById(id)}function selectedAxis(){let e=q('axis');let v=e?parseInt(e.value):axis;return Number.isFinite(v)?v:0}function reg(k,d){return meta&&meta[k]?meta[k]:d}function axisDefaults(a){return a?{command_reg:40301,maxf_reg:40303,minf_reg:40305,time_reg:40306,home_cmd_reg:40307,home_dir_reg:40309,home_minf_reg:40310,home_maxf_reg:40311,home_time_reg:40313,rel_reg:40317,prel_maxf_reg:40319,prel_minf_reg:40321,prel_time_reg:40322,jog_cmd_reg:40325,jog_dir_reg:40326,jog_speed_reg:40327,position_reg:40351,status_reg:40402,error_out_reg:40403,error_return_reg:40404,home_status_reg:40405,error_home_reg:40406,jog_status_reg:40407,error_jog_reg:40408}:{command_reg:40151,maxf_reg:40153,minf_reg:40155,time_reg:40156,home_cmd_reg:40157,home_dir_reg:40159,home_minf_reg:40160,home_maxf_reg:40161,home_time_reg:40163,rel_reg:40167,prel_maxf_reg:40169,prel_minf_reg:40171,prel_time_reg:40172,jog_cmd_reg:40175,jog_dir_reg:40176,jog_speed_reg:40177,position_reg:40201,status_reg:40252,error_out_reg:40253,error_return_reg:40254,home_status_reg:40255,error_home_reg:40256,jog_status_reg:40257,error_jog_reg:40258}}function applyMeta(j){if(!j)return;axis=(j.axis!==undefined)?j.axis:selectedAxis();meta=Object.assign({},axisDefaults(axis),meta,j);let ax=q('axis');if(ax)ax.value=axis;let pos=meta.position_reg;q('posLabel').textContent='Motor '+(axis+1)+' posicion '+pos;let st=meta.status_reg;q('bitsTitle').textContent='Bits '+st;let m=q('axisMap');if(m)m.textContent=axis?'M2 PABS 40301, HOME 40307, PREL 40317, JOG 40325, POS 40351, STATUS 40402':'M1 PABS 40151, HOME 40157, PREL 40167, JOG 40175, POS 40201, STATUS 40252'}function onAxisChange(){axis=selectedAxis();running=false;jogHeld=false;if(pollId){clearInterval(pollId);pollId=null}applyMeta({axis:axis,position_reg:axis?40351:40201,status_reg:axis?40402:40252});getStatus(false)}"
+        "function q(id){return document.getElementById(id)}function selectedAxis(){let e=q('axis');let v=e?parseInt(e.value):axis;return Number.isFinite(v)?v:0}function reg(k,d){return meta&&meta[k]?meta[k]:d}function axisDefaults(a){return a?{command_reg:40301,maxf_reg:40303,minf_reg:40305,time_reg:40306,pabs_start_reg:40314,home_cmd_reg:40307,home_dir_reg:40309,home_minf_reg:40310,home_maxf_reg:40311,home_time_reg:40313,rel_reg:40317,prel_maxf_reg:40319,prel_minf_reg:40321,prel_time_reg:40322,jog_cmd_reg:40325,jog_dir_reg:40326,jog_speed_reg:40327,position_reg:40351,status_reg:40402,error_out_reg:40403,error_return_reg:40404,home_status_reg:40405,error_home_reg:40406,jog_status_reg:40407,error_jog_reg:40408}:{command_reg:40151,maxf_reg:40153,minf_reg:40155,time_reg:40156,pabs_start_reg:40164,home_cmd_reg:40157,home_dir_reg:40159,home_minf_reg:40160,home_maxf_reg:40161,home_time_reg:40163,rel_reg:40167,prel_maxf_reg:40169,prel_minf_reg:40171,prel_time_reg:40172,jog_cmd_reg:40175,jog_dir_reg:40176,jog_speed_reg:40177,position_reg:40201,status_reg:40252,error_out_reg:40253,error_return_reg:40254,home_status_reg:40255,error_home_reg:40256,jog_status_reg:40257,error_jog_reg:40258}}function applyMeta(j){if(!j)return;axis=(j.axis!==undefined)?j.axis:selectedAxis();meta=Object.assign({},axisDefaults(axis),meta,j);let ax=q('axis');if(ax)ax.value=axis;let pos=meta.position_reg;q('posLabel').textContent='Motor '+(axis+1)+' posicion '+pos;let st=meta.status_reg;q('bitsTitle').textContent='Bits '+st;let m=q('axisMap');if(m)m.textContent=axis?'M2 PABS 40301 START 40314, HOME 40307, PREL 40317, JOG 40325, POS 40351, STATUS 40402':'M1 PABS 40151 START 40164, HOME 40157, PREL 40167, JOG 40175, POS 40201, STATUS 40252'}function onAxisChange(){axis=selectedAxis();running=false;jogHeld=false;if(pollId){clearInterval(pollId);pollId=null}applyMeta({axis:axis,position_reg:axis?40351:40201,status_reg:axis?40402:40252});getStatus(false)}"
         "function hx(v){return '0x'+(v||0).toString(16).padStart(4,'0')}"
         "function hxb(v){return '0x'+(v||0).toString(16).padStart(2,'0')}"
         "function cls(v){return v?'ok':'bad'}"
@@ -1905,12 +1919,13 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "async function api(b,force=false){if(cmdBusy&&!force)return {result:'error',msg:'comando en curso'};if(!force)cmdBusy=true;let ac=new AbortController();let t=setTimeout(()=>ac.abort(),7000);try{b.axis=selectedAxis();let r=await fetch('/api/command',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','Connection':'close'},body:JSON.stringify(b),signal:ac.signal});let j=await r.json();applyMeta(j);q('log').textContent=JSON.stringify(j,null,2);if(j.motor){if(j.fast)paintFast(j.motor);else paint(j.motor)}return j}catch(e){let j={result:'error',cmd:b.cmd,msg:e.name};q('log').textContent=JSON.stringify(j,null,2);return j}finally{clearTimeout(t);if(!force)cmdBusy=false}}"
         "function active(m){return !!(m&&(m.cycle_active||m.move_out_active||m.wait_return_active||m.return_active||m.prel_active||m.home_active||m.jog_active))}"
         "function failed(m){return !!(m&&(m.cycle_err||m.pabs_out_err||m.pabs_return_err||m.prel_err||m.home_err||m.jog_err||m.jog_stop_err))}"
-        "function phase(m){if(!m)return 'Sin lectura';if(failed(m))return 'Error';if(m.jog_active)return 'JOG '+(m.jog_dir_bit?'backward':'forward');if(m.home_active)return 'Buscando HOME';if(m.prel_active)return 'Moviendo relativo';if(m.move_out_active)return 'Moviendo a destino';if(m.wait_return_active)return 'Esperando 3 s';if(m.return_active)return 'Volviendo a cero';if(m.cycle_active)return 'Ciclo activo';if(m.jog_done)return 'JOG terminado';if(m.home_done)return 'HOME terminado';if(m.prel_done)return 'Relativo terminado';if(m.cycle_done)return 'Terminado';return 'Idle'}"
+        "function phase(m){if(!m)return 'Sin lectura';if(failed(m))return 'Error';if(m.jog_active)return 'JOG '+(m.jog_dir_bit?'backward':'forward');if(m.home_active)return 'Buscando HOME';if(m.prel_active)return 'Moviendo relativo';if(m.move_out_active)return 'Moviendo a destino absoluto';if(m.cycle_active)return 'Ciclo activo';if(m.jog_done)return 'JOG terminado';if(m.home_done)return 'HOME terminado';if(m.prel_done)return 'Relativo terminado';if(m.cycle_done)return 'PABS terminado';return 'Idle'}"
         "function paintFast(m){q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m)}"
         "function paint(m){let dbg=(m.debug_return!==undefined)?m.debug_return:((m.status3||0)>>8);let en=(dbg>>7)&1;let pto=(dbg>>6)&1;let ax=selectedAxis();let drv=dbg?en?0:1:m.enable_out;"
         "q('pos').textContent=(m.pos||0).toLocaleString();q('phase').textContent=phase(m);"
         "q('regs').innerHTML='<span>Link</span><span class='+cls(m.ok)+'>'+(m.ok?'OK':'ERR '+m.err)+'</span>'"
         "+'<span>Comando '+reg('command_reg',40151)+'</span><span class=mono>'+m.command_steps+'</span>'"
+        "+'<span>Start PABS '+reg('pabs_start_reg',40164)+'</span><span class=mono>pulso</span>'"
         "+'<span>Max '+reg('maxf_reg',40153)+'</span><span class=mono>'+m.maxf+'</span>'"
         "+'<span>Min '+reg('minf_reg',40155)+'</span><span class=mono>'+m.minf+'</span>'"
         "+'<span>Accel '+reg('time_reg',40156)+'</span><span class=mono>'+m.time+'</span>'"
@@ -1942,14 +1957,14 @@ static esp_err_t http_get_kinco_root_handler(httpd_req_t *req)
         "+'<span>PLC Alive</span><span class='+cls(m.plc_alive)+'>'+m.plc_alive+'</span>';"
         "q('bits').innerHTML='<span>b0 CycleActive</span><span>'+m.cycle_active+'</span>'"
         "+'<span>b1 MoveOut</span><span>'+m.move_out_active+'</span>'"
-        "+'<span>b2 WaitReturn</span><span>'+m.wait_return_active+'</span>'"
-        "+'<span>b3 Return</span><span>'+m.return_active+'</span>'"
+        "+'<span>b2 WaitReturn/reservado</span><span>'+m.wait_return_active+'</span>'"
+        "+'<span>b3 Return/reservado</span><span>'+m.return_active+'</span>'"
         "+'<span>b4 Done</span><span class='+cls(m.cycle_done)+'>'+m.cycle_done+'</span>'"
         "+'<span>b5 CycleErr</span><span class='+cls(!m.cycle_err)+'>'+m.cycle_err+'</span>'"
         "+'<span>b6 OutDone</span><span>'+m.pabs_out_done+'</span>'"
         "+'<span>b7 OutErr</span><span class='+cls(!m.pabs_out_err)+'>'+m.pabs_out_err+'</span>'"
-        "+'<span>b8 RetDone</span><span>'+m.pabs_return_done+'</span>'"
-        "+'<span>b9 RetErr</span><span class='+cls(!m.pabs_return_err)+'>'+m.pabs_return_err+'</span>'"
+        "+'<span>b8 RetDone/reservado</span><span>'+m.pabs_return_done+'</span>'"
+        "+'<span>b9 RetErr/reservado</span><span class='+cls(!m.pabs_return_err)+'>'+m.pabs_return_err+'</span>'"
         "+'<span>b10 Enable logico</span><span>'+m.enable_out+'</span>'"
         "+'<span>b11 WaitDone</span><span>'+m.wait_done+'</span>'"
         "+'<span>b12 PrelActive</span><span>'+m.prel_active+'</span>'"

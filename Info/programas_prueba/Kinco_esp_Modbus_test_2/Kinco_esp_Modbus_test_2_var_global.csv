@@ -5,25 +5,25 @@ JogBwdInput,%I0.2,BOOL,Entrada fisica JOG backward
 HomeSensor2,%I0.3,BOOL,Sensor fisico de HOME motor 2
 JogFwdInput2,%I0.4,BOOL,Entrada fisica JOG forward motor 2
 JogBwdInput2,%I0.5,BOOL,Entrada fisica JOG backward motor 2
-PabsOutStarted,%M0.1,BOOL,Latch de start PABS ida emitido
-PabsEnableReady,%M0.2,BOOL,Timer T1 terminado antes de PABS ida
-StartPabsOutPulse,%M0.3,BOOL,Pulso PABS ida despues de enable
-StartOutPulse,%M0.4,BOOL,Pulso interno PABS ida
-StartReturnPulse,%M0.5,BOOL,Pulso interno PABS vuelta
-WaitDone,%M0.6,BOOL,Timer espera 3 segundos terminado
+PabsOutStarted,%M0.1,BOOL,Latch de start PABS simple emitido
+PabsEnableReady,%M0.2,BOOL,Timer T1 terminado antes de PABS simple
+StartPabsOutPulse,%M0.3,BOOL,Pulso PABS simple despues de enable
+StartOutPulse,%M0.4,BOOL,Pulso interno PABS simple
+StartReturnPulse,%M0.5,BOOL,Reservado historico retorno PABS
+WaitDone,%M0.6,BOOL,Reservado historico espera retorno
 StartPabsPulse,%M0.7,BOOL,Pulso comun de la unica instruccion PABS
 CycleActive,%M1.0,BOOL,Ciclo activo habilita driver
-MoveOutActive,%M1.1,BOOL,PABS ida activo
-WaitReturnActive,%M1.2,BOOL,Esperando antes de volver a cero
-ReturnActive,%M1.3,BOOL,PABS vuelta activo
+MoveOutActive,%M1.1,BOOL,PABS simple activo
+WaitReturnActive,%M1.2,BOOL,Reservado historico espera retorno
+ReturnActive,%M1.3,BOOL,Reservado historico retorno PABS
 CycleDone,%M1.4,BOOL,Ciclo terminado correctamente
 CycleErr,%M1.5,BOOL,Ciclo con error
 PabsRawDone,%M2.0,BOOL,Done bruto de la instruccion PABS
 PabsRawErr,%M2.1,BOOL,Error bruto de la instruccion PABS
-PabsOutDone,%M2.2,BOOL,Done latcheado de ida
-PabsOutErr,%M2.3,BOOL,Error latcheado de ida
-PabsReturnDone,%M3.1,BOOL,Done latcheado de vuelta
-PabsReturnErr,%M3.2,BOOL,Error latcheado de vuelta
+PabsOutDone,%M2.2,BOOL,Done latcheado de PABS simple
+PabsOutErr,%M2.3,BOOL,Error latcheado de PABS simple
+PabsReturnDone,%M3.1,BOOL,Reservado historico done retorno
+PabsReturnErr,%M3.2,BOOL,Reservado historico error retorno
 PrelRawDone,%M4.0,BOOL,Done bruto de la instruccion PREL
 PrelRawErr,%M4.1,BOOL,Error bruto de la instruccion PREL
 PrelDone,%M4.2,BOOL,Done latcheado de movimiento relativo
@@ -56,27 +56,27 @@ Hw_StepPul2,%Q0.1,BOOL,PTO1 STEP PUL motor 2 manejado por PABS/PREL/PHOME
 Hw_Dir2,%Q0.3,BOOL,PTO1 DIR motor 2 manejado por PABS/PREL/PHOME
 Hw_DrvEnable2,%Q0.5,BOOL,Enable driver motor 2 activo solo durante el ciclo
 Status_CycleActive,%V302.0,BOOL,Estado bit 0 CycleActive
-Status_MoveOutActive,%V302.1,BOOL,Estado bit 1 MoveOutActive
-Status_WaitReturnActive,%V302.2,BOOL,Estado bit 2 WaitReturnActive
-Status_ReturnActive,%V302.3,BOOL,Estado bit 3 ReturnActive
+Status_MoveOutActive,%V302.1,BOOL,Estado bit 1 PABS simple activo
+Status_WaitReturnActive,%V302.2,BOOL,Estado bit 2 reservado historico retorno
+Status_ReturnActive,%V302.3,BOOL,Estado bit 3 reservado historico retorno
 Status_CycleDone,%V302.4,BOOL,Estado bit 4 CycleDone
 Status_CycleErr,%V302.5,BOOL,Estado bit 5 CycleErr
-Status_PabsOutDone,%V302.6,BOOL,Estado bit 6 PabsOutDone
-Status_PabsOutErr,%V302.7,BOOL,Estado bit 7 PabsOutErr
-Status_PabsReturnDone,%V303.0,BOOL,Estado bit 8 PabsReturnDone
-Status_PabsReturnErr,%V303.1,BOOL,Estado bit 9 PabsReturnErr
+Status_PabsOutDone,%V302.6,BOOL,Estado bit 6 PABS simple done
+Status_PabsOutErr,%V302.7,BOOL,Estado bit 7 PABS simple error
+Status_PabsReturnDone,%V303.0,BOOL,Estado bit 8 reservado historico retorno
+Status_PabsReturnErr,%V303.1,BOOL,Estado bit 9 reservado historico retorno
 Status_EnableOut,%V303.2,BOOL,Estado bit 10 EnableOut
-Status_WaitDone,%V303.3,BOOL,Estado bit 11 WaitDone
+Status_WaitDone,%V303.3,BOOL,Estado bit 11 reservado historico espera
 Status_PrelActive,%V303.4,BOOL,Estado bit 12 PREL activo
 Status_PrelDone,%V303.5,BOOL,Estado bit 13 PREL terminado
 Status_PrelErr,%V303.6,BOOL,Estado bit 14 PREL error
 Status_PlcAlive,%V303.7,BOOL,Estado bit 15 PLC vivo
-Debug_StartPabsOut,%V307.0,BOOL,Debug bit 0 start PABS ida
+Debug_StartPabsOut,%V307.0,BOOL,Debug bit 0 start PABS simple
 Debug_PabsRawDone,%V307.1,BOOL,Debug bit 1 done bruto PABS
 Debug_PabsRawErr,%V307.2,BOOL,Debug bit 2 error bruto PABS
-Debug_StartReturn,%V307.3,BOOL,Debug bit 3 start retorno PABS
-Debug_PabsReturnDone,%V307.4,BOOL,Debug bit 4 done retorno PABS
-Debug_PabsReturnErr,%V307.5,BOOL,Debug bit 5 error retorno PABS
+Debug_StartReturn,%V307.3,BOOL,Debug bit 3 reservado retorno PABS
+Debug_PabsReturnDone,%V307.4,BOOL,Debug bit 4 reservado retorno PABS
+Debug_PabsReturnErr,%V307.5,BOOL,Debug bit 5 reservado retorno PABS
 Debug_PtoBusy,%V307.6,BOOL,Debug bit 6 PTO ocupado
 Debug_DrvEnable,%V307.7,BOOL,Debug bit 7 salida enable driver
 Status_HomeActive,%V308.0,BOOL,HOME activo
@@ -104,14 +104,14 @@ Err_Home,%VB310,BYTE,MODBUS 40256 low byte error PHOME actual
 Err_HomeReserved,%VB311,BYTE,MODBUS 40256 high byte reservado
 Err_Jog,%VB314,BYTE,MODBUS 40258 low byte error PJOG actual
 Err_JogStop,%VB315,BYTE,MODBUS 40258 high byte error PSTOP JOG
-Cmd_TargetSteps,%VD100,DINT,MODBUS 40151-40152 pasos destino absoluto distinto de 0 arranca PABS
+Cmd_TargetSteps,%VD100,DINT,MODBUS 40151-40152 destino absoluto PABS; puede ser 0
 PabsMaxF,%VD104,DWORD,MODBUS 40153-40154 frecuencia maxima PABS
 HomeMaxF,%VD120,DWORD,MODBUS 40161-40162 frecuencia maxima HOME
 Cmd_RelSteps,%VD132,DINT,MODBUS 40167-40168 pasos relativos PREL distinto de 0 arranca movimiento
 PrelMaxF,%VD136,DWORD,MODBUS 40169-40170 frecuencia maxima PREL
 JogSpeed,%VD152,DWORD,MODBUS 40177-40178 velocidad JOG
 MoveTarget,%VD180,DINT,Copia interna del destino recibido
-ReturnTarget,%VD184,DINT,Destino interno de vuelta a cero
+ReturnTarget,%VD184,DINT,Reservado historico destino de retorno
 ActivePabsTarget,%VD188,DINT,Destino usado por la unica instruccion PABS
 ActivePrelDist,%VD192,DINT,Distancia relativa activa usada por PREL
 Status_PosActual,%VD200,DINT,MODBUS 40201-40202 copia de SMD212
@@ -122,6 +122,7 @@ HomeMode,%VW114,INT,MODBUS 40158 modo HOME 1 solo sensor HOME
 HomeDir,%VW116,INT,MODBUS 40159 direccion HOME 0 forward 1 backward
 HomeMinF,%VW118,WORD,MODBUS 40160 frecuencia minima HOME
 HomeTime,%VW124,WORD,MODBUS 40163 aceleracion desaceleracion HOME
+Cmd_PabsStart,%VW126,WORD,MODBUS 40164 comando PABS simple; escribir 1 arranca movimiento absoluto
 PrelMinF,%VW140,WORD,MODBUS 40171 frecuencia minima PREL
 PrelTime,%VW142,WORD,MODBUS 40172 aceleracion desaceleracion PREL
 Cmd_Jog,%VW148,WORD,MODBUS 40175 comando JOG 0 stop 1 forward 2 backward
@@ -129,25 +130,25 @@ JogDir,%VW150,INT,MODBUS 40176 direccion JOG 0 forward 1 backward
 Status_Word,%VW302,WORD,MODBUS 40252 estado del ciclo
 HomeStatus_Word,%VW308,WORD,MODBUS 40255 estado de HOME
 JogStatus_Word,%VW312,WORD,MODBUS 40257 estado de JOG
-M2_PabsOutStarted,%M10.1,BOOL,Latch de start PABS ida emitido motor 2
-M2_PabsEnableReady,%M10.2,BOOL,Timer T1 terminado antes de PABS ida motor 2
-M2_StartPabsOutPulse,%M10.3,BOOL,Pulso PABS ida despues de enable motor 2
-M2_StartOutPulse,%M10.4,BOOL,Pulso interno PABS ida motor 2
-M2_StartReturnPulse,%M10.5,BOOL,Pulso interno PABS vuelta motor 2
-M2_WaitDone,%M10.6,BOOL,Timer espera 3 segundos terminado motor 2
+M2_PabsOutStarted,%M10.1,BOOL,Latch de start PABS simple emitido motor 2
+M2_PabsEnableReady,%M10.2,BOOL,Timer T3 terminado antes de PABS simple motor 2
+M2_StartPabsOutPulse,%M10.3,BOOL,Pulso PABS simple despues de enable motor 2
+M2_StartOutPulse,%M10.4,BOOL,Pulso interno PABS simple motor 2
+M2_StartReturnPulse,%M10.5,BOOL,Reservado historico retorno PABS motor 2
+M2_WaitDone,%M10.6,BOOL,Reservado historico espera retorno motor 2
 M2_StartPabsPulse,%M10.7,BOOL,Pulso comun de la unica instruccion PABS motor 2
 M2_CycleActive,%M11.0,BOOL,Ciclo activo habilita driver motor 2
-M2_MoveOutActive,%M11.1,BOOL,PABS ida activo motor 2
-M2_WaitReturnActive,%M11.2,BOOL,Esperando antes de volver a cero motor 2
-M2_ReturnActive,%M11.3,BOOL,PABS vuelta activo motor 2
+M2_MoveOutActive,%M11.1,BOOL,PABS simple activo motor 2
+M2_WaitReturnActive,%M11.2,BOOL,Reservado historico espera retorno motor 2
+M2_ReturnActive,%M11.3,BOOL,Reservado historico retorno PABS motor 2
 M2_CycleDone,%M11.4,BOOL,Ciclo terminado correctamente motor 2
 M2_CycleErr,%M11.5,BOOL,Ciclo con error motor 2
 M2_PabsRawDone,%M12.0,BOOL,Done bruto de la instruccion PABS motor 2
 M2_PabsRawErr,%M12.1,BOOL,Error bruto de la instruccion PABS motor 2
-M2_PabsOutDone,%M12.2,BOOL,Done latcheado de ida motor 2
-M2_PabsOutErr,%M12.3,BOOL,Error latcheado de ida motor 2
-M2_PabsReturnDone,%M13.1,BOOL,Done latcheado de vuelta motor 2
-M2_PabsReturnErr,%M13.2,BOOL,Error latcheado de vuelta motor 2
+M2_PabsOutDone,%M12.2,BOOL,Done latcheado de PABS simple motor 2
+M2_PabsOutErr,%M12.3,BOOL,Error latcheado de PABS simple motor 2
+M2_PabsReturnDone,%M13.1,BOOL,Reservado historico done retorno motor 2
+M2_PabsReturnErr,%M13.2,BOOL,Reservado historico error retorno motor 2
 M2_PrelRawDone,%M14.0,BOOL,Done bruto de la instruccion PREL motor 2
 M2_PrelRawErr,%M14.1,BOOL,Error bruto de la instruccion PREL motor 2
 M2_PrelDone,%M14.2,BOOL,Done latcheado de movimiento relativo motor 2
@@ -174,27 +175,27 @@ M2_JogStopPulse,%M17.0,BOOL,Pulso interno PSTOP para detener JOG motor 2
 M2_JogStopErr,%M17.1,BOOL,Error bruto de la instruccion PSTOP JOG motor 2
 M2_JogStartPulse,%M17.2,BOOL,Pulso comun EXEC de la instruccion PJOG motor 2
 M2_Status_CycleActive,%V602.0,BOOL,Estado bit 0 CycleActive motor 2
-M2_Status_MoveOutActive,%V602.1,BOOL,Estado bit 1 MoveOutActive motor 2
-M2_Status_WaitReturnActive,%V602.2,BOOL,Estado bit 2 WaitReturnActive motor 2
-M2_Status_ReturnActive,%V602.3,BOOL,Estado bit 3 ReturnActive motor 2
+M2_Status_MoveOutActive,%V602.1,BOOL,Estado bit 1 PABS simple activo motor 2
+M2_Status_WaitReturnActive,%V602.2,BOOL,Estado bit 2 reservado historico retorno motor 2
+M2_Status_ReturnActive,%V602.3,BOOL,Estado bit 3 reservado historico retorno motor 2
 M2_Status_CycleDone,%V602.4,BOOL,Estado bit 4 CycleDone motor 2
 M2_Status_CycleErr,%V602.5,BOOL,Estado bit 5 CycleErr motor 2
-M2_Status_PabsOutDone,%V602.6,BOOL,Estado bit 6 PabsOutDone motor 2
-M2_Status_PabsOutErr,%V602.7,BOOL,Estado bit 7 PabsOutErr motor 2
-M2_Status_PabsReturnDone,%V603.0,BOOL,Estado bit 8 PabsReturnDone motor 2
-M2_Status_PabsReturnErr,%V603.1,BOOL,Estado bit 9 PabsReturnErr motor 2
+M2_Status_PabsOutDone,%V602.6,BOOL,Estado bit 6 PABS simple done motor 2
+M2_Status_PabsOutErr,%V602.7,BOOL,Estado bit 7 PABS simple error motor 2
+M2_Status_PabsReturnDone,%V603.0,BOOL,Estado bit 8 reservado historico retorno motor 2
+M2_Status_PabsReturnErr,%V603.1,BOOL,Estado bit 9 reservado historico retorno motor 2
 M2_Status_EnableOut,%V603.2,BOOL,Estado bit 10 EnableOut motor 2
-M2_Status_WaitDone,%V603.3,BOOL,Estado bit 11 WaitDone motor 2
+M2_Status_WaitDone,%V603.3,BOOL,Estado bit 11 reservado historico espera motor 2
 M2_Status_PrelActive,%V603.4,BOOL,Estado bit 12 PREL activo motor 2
 M2_Status_PrelDone,%V603.5,BOOL,Estado bit 13 PREL terminado motor 2
 M2_Status_PrelErr,%V603.6,BOOL,Estado bit 14 PREL error motor 2
 M2_Status_PlcAlive,%V603.7,BOOL,Estado bit 15 PLC vivo motor 2
-M2_Debug_StartPabsOut,%V607.0,BOOL,Debug bit 0 start PABS ida motor 2
+M2_Debug_StartPabsOut,%V607.0,BOOL,Debug bit 0 start PABS simple motor 2
 M2_Debug_PabsRawDone,%V607.1,BOOL,Debug bit 1 done bruto PABS motor 2
 M2_Debug_PabsRawErr,%V607.2,BOOL,Debug bit 2 error bruto PABS motor 2
-M2_Debug_StartReturn,%V607.3,BOOL,Debug bit 3 start retorno PABS motor 2
-M2_Debug_PabsReturnDone,%V607.4,BOOL,Debug bit 4 done retorno PABS motor 2
-M2_Debug_PabsReturnErr,%V607.5,BOOL,Debug bit 5 error retorno PABS motor 2
+M2_Debug_StartReturn,%V607.3,BOOL,Debug bit 3 reservado retorno PABS motor 2
+M2_Debug_PabsReturnDone,%V607.4,BOOL,Debug bit 4 reservado retorno PABS motor 2
+M2_Debug_PabsReturnErr,%V607.5,BOOL,Debug bit 5 reservado retorno PABS motor 2
 M2_Debug_PtoBusy,%V607.6,BOOL,Debug bit 6 PTO ocupado motor 2
 M2_Debug_DrvEnable,%V607.7,BOOL,Debug bit 7 salida enable driver motor 2
 M2_Status_HomeActive,%V608.0,BOOL,HOME activo motor 2
@@ -222,14 +223,14 @@ M2_Err_Home,%VB610,BYTE,MODBUS 40406 low byte error PHOME actual motor 2
 M2_Err_HomeReserved,%VB611,BYTE,MODBUS 40406 high byte reservado motor 2
 M2_Err_Jog,%VB614,BYTE,MODBUS 40408 low byte error PJOG actual motor 2
 M2_Err_JogStop,%VB615,BYTE,MODBUS 40408 high byte error PSTOP JOG motor 2
-M2_Cmd_TargetSteps,%VD400,DINT,MODBUS 40301-40302 pasos destino absoluto distinto de 0 arranca PABS motor 2
+M2_Cmd_TargetSteps,%VD400,DINT,MODBUS 40301-40302 destino absoluto PABS motor 2; puede ser 0
 M2_PabsMaxF,%VD404,DWORD,MODBUS 40303-40304 frecuencia maxima PABS motor 2
 M2_HomeMaxF,%VD420,DWORD,MODBUS 40311-40312 frecuencia maxima HOME motor 2
 M2_Cmd_RelSteps,%VD432,DINT,MODBUS 40317-40318 pasos relativos PREL distinto de 0 arranca movimiento motor 2
 M2_PrelMaxF,%VD436,DWORD,MODBUS 40319-40320 frecuencia maxima PREL motor 2
 M2_JogSpeed,%VD452,DWORD,MODBUS 40327-40328 velocidad JOG motor 2
 M2_MoveTarget,%VD480,DINT,Copia interna del destino recibido motor 2
-M2_ReturnTarget,%VD484,DINT,Destino interno de vuelta a cero motor 2
+M2_ReturnTarget,%VD484,DINT,Reservado historico destino de retorno motor 2
 M2_ActivePabsTarget,%VD488,DINT,Destino usado por la unica instruccion PABS motor 2
 M2_ActivePrelDist,%VD492,DINT,Distancia relativa activa usada por PREL motor 2
 M2_Status_PosActual,%VD500,DINT,MODBUS 40351-40352 copia de SMD242 motor 2
@@ -240,6 +241,7 @@ M2_HomeMode,%VW414,INT,MODBUS 40308 modo HOME 1 solo sensor HOME motor 2
 M2_HomeDir,%VW416,INT,MODBUS 40309 direccion HOME 0 forward 1 backward motor 2
 M2_HomeMinF,%VW418,WORD,MODBUS 40310 frecuencia minima HOME motor 2
 M2_HomeTime,%VW424,WORD,MODBUS 40313 aceleracion desaceleracion HOME motor 2
+M2_Cmd_PabsStart,%VW426,WORD,MODBUS 40314 comando PABS simple motor 2; escribir 1 arranca movimiento absoluto
 M2_PrelMinF,%VW440,WORD,MODBUS 40321 frecuencia minima PREL motor 2
 M2_PrelTime,%VW442,WORD,MODBUS 40322 aceleracion desaceleracion PREL motor 2
 M2_Cmd_Jog,%VW448,WORD,MODBUS 40325 comando JOG 0 stop 1 forward 2 backward motor 2
