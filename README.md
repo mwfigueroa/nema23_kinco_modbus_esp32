@@ -223,7 +223,7 @@ Motor 1 (`axis=0`):
 | 40169-40170 | `%VD136` | DWORD | Frecuencia maxima PREL |
 | 40171 | `%VW140` | WORD | Frecuencia minima PREL |
 | 40172 | `%VW142` | WORD | Tiempo de aceleracion/desaceleracion PREL |
-| 40173 | `%VW144` | WORD | Reinicio logico a estado de primer scan; escribir `1` |
+| 40173 | `%VW144` | WORD | Reinicio logico a estado de primer scan; pulsar `1`->`0` (el firmware no lo auto-limpia) |
 | 40175 | `%VW148` | WORD | Comando JOG: `0` stop, `1` forward, `2` backward |
 | 40176 | `%VW150` | WORD | Direccion JOG activa |
 | 40177-40178 | `%VD152` | DWORD | Velocidad JOG |
@@ -385,17 +385,23 @@ Motor 2: leer 40402; bit 8 StopDone, bit 9 StopErr
 
 Escribir `1` en `40173` / `%VW144` ejecuta una inicializacion logica igual al
 primer scan del programa: limpia comandos, errores, estados internos, restaura
-parametros por defecto y pulsa el reset de posicion PTO de ambos ejes. El propio
-PLC vuelve a escribir `0` en `40173`.
+parametros por defecto y pulsa el reset de posicion PTO de ambos ejes.
+
+`40173` es un registro de **comando**: el maestro Modbus lo pulsa (escribe `1`,
+mantiene el pulso ~0.5 s y luego escribe `0`). El firmware actual **no** lo
+auto-limpia, por lo que dejarlo en `1` mantendria al PLC reinicializandose en
+cada scan; siempre liberar a `0` tras el pulso.
 
 ```text
-Reinicio logico: escribir WORD 1 en 40173
-Base-0:          write single register address 172 = 1
+Reinicio logico: pulsar WORD 40173  (1 -> ~0.5 s -> 0)
+Base-0:          write single register address 172 = 1, luego = 0
 ```
 
 Usarlo con los ejes detenidos. Si hay movimiento activo, mandar primero
-`Stop ambos` (`40166`) y luego `40173`. Esto no reemplaza una parada de
-emergencia cableada ni reinicia electricamente la PLC.
+`Stop ambos` (`40166`) y luego pulsar `40173`. Esto no reemplaza una parada de
+emergencia cableada ni reinicia electricamente la PLC. Tras el reset los
+contadores quedan en `0`, pero la posicion fisica no cambia: rehacer HOME antes
+del siguiente movimiento absoluto.
 
 ## Estado de Entradas Digitales
 

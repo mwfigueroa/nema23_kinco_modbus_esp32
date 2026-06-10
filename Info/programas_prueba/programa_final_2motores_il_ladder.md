@@ -270,14 +270,16 @@ Ambos:   escribir 1 en 40166 / %VW130
 Reinicio logico del programa PLC:
 
 ```text
-Escribir 1 en 40173 / %VW144
-Base-0: write single register address 172 = 1
+Pulsar WORD 40173 / %VW144  (1 -> ~0.5 s -> 0)
+Base-0: write single register address 172 = 1, luego = 0
 ```
 
 Este comando replica la inicializacion de primer scan: limpia comandos, errores
 y estados, restaura parametros por defecto y pulsa el reset de posicion PTO de
-ambos ejes. Usarlo con los ejes detenidos; si hay movimiento activo, mandar
-primero Stop ambos (`40166`).
+ambos ejes. `40173` es un registro de comando: el maestro lo pulsa `1`->`0`; el
+firmware actual no lo auto-limpia, asi que hay que liberarlo a `0` tras el pulso
+(dejarlo en `1` reinicializaria el PLC en cada scan). Usarlo con los ejes
+detenidos; si hay movimiento activo, mandar primero Stop ambos (`40166`).
 
 ## 12. Checklist de Prueba
 
