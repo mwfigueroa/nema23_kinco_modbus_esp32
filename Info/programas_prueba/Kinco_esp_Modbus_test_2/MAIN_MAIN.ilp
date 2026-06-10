@@ -7,18 +7,12 @@ R       %SM231.7
 R       %SM231.3
 R       %M5.0
 R       %M15.0
-(* Network 0A *)
-LD      %SM0.0
-NE      %VW144, W#0
-ST      %M7.4
 (* Network 1 *)
 LD      %SM0.1
-OR      %M7.4
 ST      %SM201.6
 ST      %SM231.6
 (* Network 2 *)
 LD      %SM0.1
-OR      %M7.4
 MOVE    DI#0, %VD100
 MOVE    DW#2000, %VD104
 MOVE    W#300, %VW108
@@ -36,7 +30,6 @@ MOVE    DI#0, %VD132
 MOVE    DW#2000, %VD136
 MOVE    W#300, %VW140
 MOVE    W#300, %VW142
-MOVE    W#0, %VW144
 MOVE    W#0, %VW148
 MOVE    I#0, %VW150
 MOVE    DW#1000, %VD152
@@ -69,7 +62,6 @@ MOVE    DI#0, %VD488
 MOVE    DI#0, %VD492
 (* Network 3 *)
 LD      %SM0.1
-OR      %M7.4
 MOVE    W#0, %VW302
 MOVE    W#0, %VW304
 MOVE    W#0, %VW306
@@ -77,7 +69,6 @@ MOVE    W#0, %VW308
 MOVE    W#0, %VW310
 MOVE    W#0, %VW312
 MOVE    W#0, %VW314
-MOVE    W#0, %VW316
 MOVE    W#0, %VW602
 MOVE    W#0, %VW604
 MOVE    W#0, %VW606
@@ -87,7 +78,6 @@ MOVE    W#0, %VW612
 MOVE    W#0, %VW614
 (* Network 4 *)
 LD      %SM0.1
-OR      %M7.4
 R       %M0.1
 R       %M0.2
 R       %M0.3
@@ -133,7 +123,6 @@ R       %M7.0
 R       %M7.1
 R       %M7.2
 R       %M7.3
-R       %M7.4
 R       %M10.1
 R       %M10.2
 R       %M10.3
@@ -789,33 +778,6 @@ ST      %V312.6
 (* Network 79 *)
 LD      %M7.1
 ST      %V312.7
-(* Network 79A *)
-LD      %I0.0
-ST      %V316.0
-(* Network 79B *)
-LD      %I0.1
-ST      %V316.1
-(* Network 79C *)
-LD      %I0.2
-ST      %V316.2
-(* Network 79D *)
-LD      %I0.3
-ST      %V316.3
-(* Network 79E *)
-LD      %I0.4
-ST      %V316.4
-(* Network 79F *)
-LD      %I0.5
-ST      %V316.5
-(* Network 79G *)
-LD      %I0.6
-ST      %V316.6
-(* Network 79H *)
-LD      %I0.7
-ST      %V316.7
-(* Network 79I *)
-LD      %I1.0
-ST      %V317.0
 (* Network 80 *)
 LD      %M0.3
 ST      %V307.0
