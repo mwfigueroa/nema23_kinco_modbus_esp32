@@ -211,6 +211,8 @@ Motor 1 (`axis=0`):
 | 40155 | `%VW108` | WORD | Frecuencia minima PABS |
 | 40156 | `%VW110` | WORD | Tiempo de aceleracion/desaceleracion |
 | 40164 | `%VW126` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
+| 40165 | `%VW128` | WORD | Stop operativo motor 1; escribir `1` ejecuta `PSTOP` |
+| 40166 | `%VW130` | WORD | Stop operativo ambos motores; escribir `1` ejecuta `PSTOP` en ambos ejes |
 | 40157 | `%VW112` | WORD | Comando HOME; distinto de `0` arranca PHOME |
 | 40158 | `%VW114` | WORD | Modo HOME; `1` usa solo sensor HOME |
 | 40159 | `%VW116` | WORD | Direccion HOME; `0` forward, `1` backward |
@@ -234,6 +236,7 @@ Motor 2 (`axis=1`):
 | 40305 | `%VW408` | WORD | Frecuencia minima PABS |
 | 40306 | `%VW410` | WORD | Tiempo de aceleracion/desaceleracion |
 | 40314 | `%VW426` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
+| 40315 | `%VW428` | WORD | Stop operativo motor 2; escribir `1` ejecuta `PSTOP` |
 | 40307 | `%VW412` | WORD | Comando HOME; distinto de `0` arranca PHOME |
 | 40308 | `%VW414` | WORD | Modo HOME; `1` usa solo sensor HOME |
 | 40309 | `%VW416` | WORD | Direccion HOME; `0` forward, `1` backward |
@@ -302,6 +305,8 @@ Si el master usa direcciones base 0:
 40161-40162 -> address 160, quantity 2
 40163       -> address 162
 40164       -> address 163
+40165       -> address 164
+40166       -> address 165
 40167-40168 -> address 166, quantity 2
 40169-40170 -> address 168, quantity 2
 40171       -> address 170
@@ -326,6 +331,7 @@ Si el master usa direcciones base 0:
 40311-40312 -> address 310, quantity 2
 40313       -> address 312
 40314       -> address 313
+40315       -> address 314
 40317-40318 -> address 316, quantity 2
 40319-40320 -> address 318, quantity 2
 40321       -> address 320
@@ -339,6 +345,36 @@ Si el master usa direcciones base 0:
 40406       -> address 405
 40407       -> address 406
 40408       -> address 407
+```
+
+### Stop operativo por Modbus directo
+
+El stop operativo usa la instruccion `PSTOP` de la PLC y se ejecuta por eje
+dentro del scan. Es util para detener un movimiento activo desde un master
+Modbus TCP/RTU, pero no reemplaza una parada de emergencia de seguridad
+cableada por hardware.
+
+Ejemplos con registros Modbus humanos:
+
+```text
+Stop motor 1: escribir WORD 1 en 40165
+Stop motor 2: escribir WORD 1 en 40315
+Stop ambos:   escribir WORD 1 en 40166
+```
+
+Si la libreria usa address base-0:
+
+```text
+Stop motor 1: write single register address 164 = 1
+Stop motor 2: write single register address 314 = 1
+Stop ambos:   write single register address 165 = 1
+```
+
+Confirmacion por estado:
+
+```text
+Motor 1: leer 40252; bit 8 StopDone, bit 9 StopErr
+Motor 2: leer 40402; bit 8 StopDone, bit 9 StopErr
 ```
 
 ## Bits de estado de ciclo
@@ -356,8 +392,8 @@ La tabla muestra motor 1; para motor 2 usar los mismos bits en `%V602/%V603`.
 | 5 | `%V302.5` | CycleErr | Error de ciclo |
 | 6 | `%V302.6` | PabsDone | PABS completado |
 | 7 | `%V302.7` | PabsErr | Error en PABS |
-| 8 | `%V303.0` | Reservado | Antes PabsReturnDone |
-| 9 | `%V303.1` | Reservado | Antes PabsReturnErr |
+| 8 | `%V303.0` | StopDone | Stop operativo ejecutado |
+| 9 | `%V303.1` | StopErr | Error de `PSTOP` operativo |
 | 10 | `%V303.2` | EnableOut | Driver habilitado logico; salida fisica activa-bajo |
 | 11 | `%V303.3` | WaitDone | Timer de espera terminado |
 | 12 | `%V303.4` | PrelActive | Movimiento relativo activo |
