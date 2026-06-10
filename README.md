@@ -449,9 +449,44 @@ nema23_kinco_modbus_esp32/
 |-- scripts/
 |   |-- build.ps1
 |   |-- flash_monitor.ps1
-|   `-- ensure_idf.ps1
+|   |-- ensure_idf.ps1
+|   `-- read_kinco_position.py   # cliente Modbus TCP puro para leer posición (sin deps)
 `-- managed_components/
 ```
+
+## Utilidad: lectura de posición por Modbus TCP (script Python)
+
+`scripts/read_kinco_position.py` es un cliente Modbus TCP minimalista (sin dependencias como pymodbus) para leer el contador de pasos actual del PLC Kinco a través del puente del ESP32.
+
+Por defecto apunta a `%VD200` (holding registers 40201-40202, address base-0 = 200) del slave 1, que es la posición actual del motor 1 (copia de %SMD212 en el programa PLC).
+
+### Ejemplos de uso
+
+```powershell
+# Lectura única (IP del ESP32 obtenida del log serie o /api/status)
+python scripts/read_kinco_position.py 192.168.1.123
+
+# Polling continuo cada 200 ms (útil para observar movimiento en tiempo real)
+python scripts/read_kinco_position.py 192.168.1.123 --interval 0.2
+
+# Polling limitado + word order explícito (low-high = lo-word primero, default del proyecto)
+python scripts/read_kinco_position.py 192.168.1.123 --interval 0.5 --count 30 --word-order low-high
+
+# Usar número de registro humano (40201) en vez de address base-0
+python scripts/read_kinco_position.py 192.168.1.123 --human-register 40201
+```
+
+Para motor 2 la posición está en 40351-40352 (address 350). Usa `--address 350`.
+
+El script reporta:
+
+```
+position_steps=12345 regs=[0x3039,0x0000] address=200 human=40201
+```
+
+Maneja correctamente el signo (DINT signed) y valida transacciones.
+
+Ver también el bridge en el README (sección Modbus TCP :502) y el cliente pymodbus de ejemplo que aparece en la documentación del mapa Modbus.
 
 ## Requisitos
 
