@@ -40,11 +40,15 @@ PABS absoluto: escribir destino en VD y luego escribir 1 en Cmd_PabsStart
 HOME:          escribir comando distinto de 0
 PREL relativo: escribir distancia distinta de 0
 JOG:           escribir 1 forward, 2 backward, 0 stop
+STOP:          escribir 1 en stop individual o stop ambos
 ```
 
 El destino PABS puede ser `0`. El PLC limpia el registro de start al capturarlo,
 habilita el driver mientras dura el movimiento y reporta estado por words de
 diagnostico.
+
+El stop operativo usa `PSTOP` del PLC y se ejecuta por eje dentro del scan.
+No reemplaza una parada de emergencia de seguridad cableada por hardware.
 
 ## 3. Mapa Modbus - Motor 1
 
@@ -57,6 +61,8 @@ diagnostico.
 | `40155` | `%VW108` | WORD | Frecuencia minima PABS |
 | `40156` | `%VW110` | WORD | Tiempo acel/decel PABS |
 | `40164` | `%VW126` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
+| `40165` | `%VW128` | WORD | Stop operativo motor 1; escribir `1` ejecuta PSTOP |
+| `40166` | `%VW130` | WORD | Stop operativo ambos motores; escribir `1` ejecuta PSTOP en ambos ejes |
 | `40157` | `%VW112` | WORD | Comando HOME; distinto de 0 arranca PHOME |
 | `40158` | `%VW114` | INT | Modo HOME, `1` solo sensor HOME |
 | `40159` | `%VW116` | INT | Direccion HOME, `0` forward, `1` backward |
@@ -95,6 +101,7 @@ diagnostico.
 | `40305` | `%VW408` | WORD | Frecuencia minima PABS |
 | `40306` | `%VW410` | WORD | Tiempo acel/decel PABS |
 | `40314` | `%VW426` | WORD | Start PABS simple; escribir `1` arranca movimiento absoluto |
+| `40315` | `%VW428` | WORD | Stop operativo motor 2; escribir `1` ejecuta PSTOP |
 | `40307` | `%VW412` | WORD | Comando HOME; distinto de 0 arranca PHOME |
 | `40308` | `%VW414` | INT | Modo HOME, `1` solo sensor HOME |
 | `40309` | `%VW416` | INT | Direccion HOME, `0` forward, `1` backward |
@@ -130,10 +137,13 @@ Algunas librerias Modbus usan direccion base 0:
 |---:|---:|
 | `40151` | `150` |
 | `40164` | `163` |
+| `40165` | `164` |
+| `40166` | `165` |
 | `40201` | `200` |
 | `40252` | `251` |
 | `40301` | `300` |
 | `40314` | `313` |
+| `40315` | `314` |
 | `40351` | `350` |
 | `40402` | `401` |
 
@@ -151,8 +161,8 @@ Motor 1 usa `%VW302`; motor 2 usa `%VW602`.
 | 5 | `%V302.5` | `%V602.5` | CycleErr |
 | 6 | `%V302.6` | `%V602.6` | PabsDone |
 | 7 | `%V302.7` | `%V602.7` | PabsOutErr |
-| 8 | `%V303.0` | `%V603.0` | Reservado, antes PabsReturnDone |
-| 9 | `%V303.1` | `%V603.1` | Reservado, antes PabsReturnErr |
+| 8 | `%V303.0` | `%V603.0` | StopDone |
+| 9 | `%V303.1` | `%V603.1` | StopErr |
 | 10 | `%V303.2` | `%V603.2` | EnableOut logico |
 | 11 | `%V303.3` | `%V603.3` | WaitDone |
 | 12 | `%V303.4` | `%V603.4` | PrelActive |
@@ -225,6 +235,14 @@ Comandos:
 {"cmd":"kinco_home","axis":1,"dir":0,"mode":1,"speed":1000,"minf":200,"time":300}
 {"cmd":"kinco_jog_fwd","axis":1,"speed":1000}
 {"cmd":"kinco_jog_stop","axis":1}
+```
+
+Stop operativo directo por Modbus:
+
+```text
+Motor 1: escribir 1 en 40165 / %VW128
+Motor 2: escribir 1 en 40315 / %VW428
+Ambos:   escribir 1 en 40166 / %VW130
 ```
 
 ## 11. Checklist de Prueba

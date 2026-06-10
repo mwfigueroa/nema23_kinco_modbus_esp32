@@ -17,6 +17,8 @@ del ESP32:
 | Posicion Modbus | `40201-40202` / `%VD200` | `40351-40352` / `%VD500` |
 | Estado ciclo | `40252` / `%VW302` | `40402` / `%VW602` |
 | Start PABS simple | `40164` / `%VW126` | `40314` / `%VW426` |
+| Stop operativo | `40165` / `%VW128` | `40315` / `%VW428` |
+| Stop ambos ejes | `40166` / `%VW130` | `40166` / `%VW130` |
 
 Documentacion vigente:
 
@@ -27,6 +29,11 @@ Documentacion vigente:
 No usar el esquema historico de palabra de control `40051/40101` ni `%Q0.3`
 como enable. En el programa final `%Q0.3` es direccion del motor 2. PABS ya no
 hace ida-vuelta: el destino puede ser `0` y se dispara con `40164` o `40314`.
+
+Stop operativo agregado el 2026-06-10: escribir `1` en `40165` detiene motor
+1 por `PSTOP`, escribir `1` en `40315` detiene motor 2 por `PSTOP`, y escribir
+`1` en `40166` detiene ambos ejes. Es una parada operativa por software dentro
+del scan PLC, no una parada de emergencia de seguridad cableada.
 
 ## Punto Guardado - 2026-06-08 17:50 ART
 

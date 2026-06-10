@@ -18,6 +18,8 @@ MOVE    DW#2000, PabsMaxF
 MOVE    W#300, PabsMinF
 MOVE    W#300, PabsTime
 MOVE    W#0, Cmd_PabsStart
+MOVE    W#0, Cmd_Stop
+MOVE    W#0, Cmd_StopAll
 MOVE    W#0, Cmd_Home
 MOVE    I#1, HomeMode
 MOVE    I#0, HomeDir
@@ -40,6 +42,7 @@ MOVE    DW#2000, M2_PabsMaxF
 MOVE    W#300, M2_PabsMinF
 MOVE    W#300, M2_PabsTime
 MOVE    W#0, M2_Cmd_PabsStart
+MOVE    W#0, M2_Cmd_Stop
 MOVE    W#0, M2_Cmd_Home
 MOVE    I#1, M2_HomeMode
 MOVE    I#0, M2_HomeDir
@@ -119,6 +122,7 @@ R    %M6.7
 R    %M7.0
 R    %M7.1
 R    %M7.2
+R    %M7.3
 R    %M10.1
 R    %M10.2
 R    %M10.3
@@ -163,6 +167,7 @@ R    %M16.7
 R    %M17.0
 R    %M17.1
 R    %M17.2
+R    %M17.3
 (* Network 5 *)
 LD    %SM0.0
 ANDN    %M1.0
@@ -344,11 +349,67 @@ R    %M0.5
 R    %M0.6
 R    %M0.7
 (* Network 14 *)
-LD    %SM0.0
-R    %M6.5
-R    %M6.6
-R    %M7.0
-R    %M7.2
+LD      %SM0.0
+R       JogStartFwd
+R       JogStartBwd
+R       JogStopPulse
+R       JogStartPulse
+R       StopRequest
+LD      %SM0.0
+NE      Cmd_Stop  W#0
+S       StopRequest
+LD      %SM0.0
+NE      Cmd_StopAll  W#0
+S       StopRequest
+LD      StopRequest
+S       JogStopPulse
+S       StopDone
+R       StopErr
+R       CycleActive
+R       MoveOutActive
+R       WaitReturnActive
+R       ReturnActive
+R       CycleDone
+R       CycleErr
+R       PabsOutStarted
+R       PabsEnableReady
+R       StartPabsOutPulse
+R       StartOutPulse
+R       StartReturnPulse
+R       WaitDone
+R       StartPabsPulse
+R       PabsRawDone
+R       PabsRawErr
+R       PabsOutDone
+R       PabsOutErr
+R       PrelRawDone
+R       PrelRawErr
+R       PrelDone
+R       PrelErr
+R       PrelActive
+R       StartPrelPulse
+R       StartHomePulse
+R       HomeRawDone
+R       HomeRawErr
+R       HomeDone
+R       HomeErr
+R       HomeActive
+R       HomeResetPosPulse
+R       JogRawDone
+R       JogRawErr
+R       JogDone
+R       JogErr
+R       JogActive
+R       JogStartFwd
+R       JogStartBwd
+R       JogCmdActive
+R       JogStopErr
+R       JogStartPulse
+MOVE    W#0  Cmd_Stop
+MOVE    W#0  Cmd_PabsStart
+MOVE    DI#0  Cmd_RelSteps
+MOVE    W#0  Cmd_Home
+MOVE    W#0  Cmd_Jog
 (* Network 15 *)
 LD    %SM0.0
 NE    Cmd_Jog, W#0
@@ -549,8 +610,11 @@ PHOME    0, StartHomePulse, HomeSensor, HomeNHomeFalse, HomeMode, HomeDir, HomeM
 LD    %M6.4
 PJOG    0, JogActive, JogSpeed, JogDir, JogRawDone, JogRawErr, Err_Jog
 (* Network 38 *)
-LD    %SM0.0
-PSTOP    0, JogStopPulse, JogStopErr, Err_JogStop
+LD      %SM0.0
+PSTOP   0  JogStopPulse  JogStopErr  Err_JogStop
+LD      JogStopErr
+S       StopErr
+R       StopDone
 (* Network 39 *)
 LD    %M5.6
 AND    %M5.2
@@ -919,11 +983,68 @@ R    %M10.5
 R    %M10.6
 R    %M10.7
 (* Network 97 *)
-LD    %SM0.0
-R    %M16.5
-R    %M16.6
-R    %M17.0
-R    %M17.2
+LD      %SM0.0
+R       M2_JogStartFwd
+R       M2_JogStartBwd
+R       M2_JogStopPulse
+R       M2_JogStartPulse
+R       M2_StopRequest
+LD      %SM0.0
+NE      M2_Cmd_Stop  W#0
+S       M2_StopRequest
+LD      %SM0.0
+NE      Cmd_StopAll  W#0
+S       M2_StopRequest
+LD      M2_StopRequest
+S       M2_JogStopPulse
+S       M2_StopDone
+R       M2_StopErr
+R       M2_CycleActive
+R       M2_MoveOutActive
+R       M2_WaitReturnActive
+R       M2_ReturnActive
+R       M2_CycleDone
+R       M2_CycleErr
+R       M2_PabsOutStarted
+R       M2_PabsEnableReady
+R       M2_StartPabsOutPulse
+R       M2_StartOutPulse
+R       M2_StartReturnPulse
+R       M2_WaitDone
+R       M2_StartPabsPulse
+R       M2_PabsRawDone
+R       M2_PabsRawErr
+R       M2_PabsOutDone
+R       M2_PabsOutErr
+R       M2_PrelRawDone
+R       M2_PrelRawErr
+R       M2_PrelDone
+R       M2_PrelErr
+R       M2_PrelActive
+R       M2_StartPrelPulse
+R       M2_StartHomePulse
+R       M2_HomeRawDone
+R       M2_HomeRawErr
+R       M2_HomeDone
+R       M2_HomeErr
+R       M2_HomeActive
+R       M2_HomeResetPosPulse
+R       M2_JogRawDone
+R       M2_JogRawErr
+R       M2_JogDone
+R       M2_JogErr
+R       M2_JogActive
+R       M2_JogStartFwd
+R       M2_JogStartBwd
+R       M2_JogCmdActive
+R       M2_JogStopErr
+R       M2_JogStartPulse
+MOVE    W#0  M2_Cmd_Stop
+MOVE    W#0  Cmd_StopAll
+MOVE    W#0  M2_Cmd_PabsStart
+MOVE    DI#0  M2_Cmd_RelSteps
+MOVE    W#0  M2_Cmd_Home
+MOVE    W#0  M2_Cmd_Jog
 (* Network 98 *)
 LD    %SM0.0
 NE    M2_Cmd_Jog, W#0
@@ -1124,8 +1245,11 @@ PHOME    1, M2_StartHomePulse, HomeSensor2, M2_HomeNHomeFalse, M2_HomeMode, M2_H
 LD    %M16.4
 PJOG    1, M2_JogActive, M2_JogSpeed, M2_JogDir, M2_JogRawDone, M2_JogRawErr, M2_Err_Jog
 (* Network 121 *)
-LD    %SM0.0
-PSTOP    1, M2_JogStopPulse, M2_JogStopErr, M2_Err_JogStop
+LD      %SM0.0
+PSTOP   1  M2_JogStopPulse  M2_JogStopErr  M2_Err_JogStop
+LD      M2_JogStopErr
+S       M2_StopErr
+R       M2_StopDone
 (* Network 122 *)
 LD    %M15.6
 AND    %M15.2
