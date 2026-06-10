@@ -227,6 +227,7 @@ Motor 1 (`axis=0`):
 | 40175 | `%VW148` | WORD | Comando JOG: `0` stop, `1` forward, `2` backward |
 | 40176 | `%VW150` | WORD | Direccion JOG activa |
 | 40177-40178 | `%VD152` | DWORD | Velocidad JOG |
+| 40179 | `%VW156` | WORD | Comando enable/disable driver motor 1, motor 2 o ambos |
 
 Motor 2 (`axis=1`):
 
@@ -279,6 +280,7 @@ Motor 1 (`axis=0`):
 | 40257 | `%VW312` | WORD | Bits de estado JOG |
 | 40258 | `%VW314` | WORD | `Err_Jog` y `Err_JogStop` |
 | 40259 | `%VW316` | WORD | Estado entradas digitales CPU `%I0.0`..`%I1.0` |
+| 40260 | `%VW318` | WORD | Estado enable/disable drivers |
 
 Motor 2 (`axis=1`):
 
@@ -317,6 +319,7 @@ Si el master usa direcciones base 0:
 40175       -> address 174
 40176       -> address 175
 40177-40178 -> address 176, quantity 2
+40179       -> address 178
 40201-40202 -> address 200, quantity 2
 40252       -> address 251
 40255       -> address 254
@@ -324,6 +327,7 @@ Si el master usa direcciones base 0:
 40257       -> address 256
 40258       -> address 257
 40259       -> address 258
+40260       -> address 259
 40301-40302 -> address 300, quantity 2
 40303-40304 -> address 302, quantity 2
 40305       -> address 304
@@ -402,6 +406,48 @@ Usarlo con los ejes detenidos. Si hay movimiento activo, mandar primero
 emergencia cableada ni reinicia electricamente la PLC. Tras el reset los
 contadores quedan en `0`, pero la posicion fisica no cambia: rehacer HOME antes
 del siguiente movimiento absoluto.
+
+### Enable/Disable Driver por Modbus
+
+Escribir un valor en `40179` / `%VW156` habilita o deshabilita los drivers desde
+la logica PLC. El programa vuelve `%VW156` a `0` despues de tomar el comando.
+Las salidas fisicas son activas-bajo: `%Q0.4/%Q0.5 = 0` habilita el driver,
+`1` lo deshabilita.
+
+| Valor | Accion |
+|---:|---|
+| 1 | Enable motor 1 |
+| 2 | Disable motor 1 |
+| 3 | Enable motor 2 |
+| 4 | Disable motor 2 |
+| 5 | Enable ambos |
+| 6 | Disable ambos |
+
+Al hacer `disable`, la PLC tambien dispara el stop operativo del eje
+correspondiente y bloquea nuevos comandos PABS/PREL/HOME/JOG hasta recibir
+`enable`.
+
+Estado en `40260` / `%VW318`:
+
+| Bit | Significado |
+|---:|---|
+| 0 | Motor 1 enable manual activo |
+| 1 | Motor 1 inhibido/disabled |
+| 2 | Motor 1 enable efectivo |
+| 3 | Salida raw `%Q0.4` |
+| 4 | Motor 2 enable manual activo |
+| 5 | Motor 2 inhibido/disabled |
+| 6 | Motor 2 enable efectivo |
+| 7 | Salida raw `%Q0.5` |
+
+Ejemplos:
+
+```text
+Enable ambos:  escribir WORD 5 en 40179
+Disable ambos: escribir WORD 6 en 40179
+Base-0:        write single register address 178 = 5 o 6
+Leer estado:   read holding register 40260 / address 259
+```
 
 ## Estado de Entradas Digitales
 
@@ -482,6 +528,7 @@ Motor 1 usa `40255` / `%VW308`; motor 2 usa `40405` / `%VW608`.
 | Sensor HOME motor 2 | `%I0.3` |
 | JOG fisico motor 2 | `%I0.4` forward, `%I0.5` backward |
 | Entradas libres por Modbus | `%I0.6`, `%I0.7`, `%I1.0` en `40259` |
+| Enable/disable por Modbus | Comando `40179`, estado `40260` |
 
 `%Q0.0/%Q0.2` y `%Q0.1/%Q0.3` los manejan las instrucciones
 `PABS`/`PREL`/`PHOME`; no se fuerzan desde ladder. `%Q0.3` ya no puede usarse

@@ -32,6 +32,7 @@ MOVE    W#300, %VW140
 MOVE    W#300, %VW142
 MOVE    W#0, %VW148
 MOVE    I#0, %VW150
+MOVE    W#0, %VW156
 MOVE    DW#1000, %VD152
 MOVE    DI#0, %VD180
 MOVE    DI#0, %VD184
@@ -69,6 +70,7 @@ MOVE    W#0, %VW308
 MOVE    W#0, %VW310
 MOVE    W#0, %VW312
 MOVE    W#0, %VW314
+MOVE    W#0, %VW318
 MOVE    W#0, %VW602
 MOVE    W#0, %VW604
 MOVE    W#0, %VW606
@@ -123,6 +125,9 @@ R       %M7.0
 R       %M7.1
 R       %M7.2
 R       %M7.3
+R       %M7.5
+R       %M7.6
+R       %M7.7
 R       %M10.1
 R       %M10.2
 R       %M10.3
@@ -168,9 +173,54 @@ R       %M17.0
 R       %M17.1
 R       %M17.2
 R       %M17.3
+R       %M17.5
+R       %M17.6
+R       %M17.7
+(* Network 4A *)
+LD      %SM0.0
+EQ      %VW156, W#1
+S       %M7.5
+R       %M7.6
+(* Network 4B *)
+LD      %SM0.0
+EQ      %VW156, W#2
+R       %M7.5
+S       %M7.6
+MOVE    W#1, %VW128
+(* Network 4C *)
+LD      %SM0.0
+EQ      %VW156, W#3
+S       %M17.5
+R       %M17.6
+(* Network 4D *)
+LD      %SM0.0
+EQ      %VW156, W#4
+R       %M17.5
+S       %M17.6
+MOVE    W#1, %VW428
+(* Network 4E *)
+LD      %SM0.0
+EQ      %VW156, W#5
+S       %M7.5
+R       %M7.6
+S       %M17.5
+R       %M17.6
+(* Network 4F *)
+LD      %SM0.0
+EQ      %VW156, W#6
+R       %M7.5
+S       %M7.6
+R       %M17.5
+S       %M17.6
+MOVE    W#1, %VW130
+(* Network 4G *)
+LD      %SM0.0
+NE      %VW156, W#0
+MOVE    W#0, %VW156
 (* Network 5 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 NE      %VW126, W#0
 ST      %M0.4
 (* Network 6 *)
@@ -232,6 +282,7 @@ R       %M0.7
 (* Network 8 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 NE      %VD132, DI#0
 ST      %M4.5
 (* Network 9 *)
@@ -292,6 +343,7 @@ R       %M0.7
 (* Network 11 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 NE      %VW112, W#0
 ST      %M5.1
 (* Network 12 *)
@@ -417,23 +469,27 @@ ST      %M6.7
 (* Network 16 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 AND     %I0.1
 ANDN    %I0.2
 S       %M6.5
 (* Network 17 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 AND     %I0.2
 ANDN    %I0.1
 S       %M6.6
 (* Network 18 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 EQ      %VW148, W#1
 S       %M6.5
 (* Network 19 *)
 LD      %SM0.0
 ANDN    %M1.0
+ANDN    %M7.6
 EQ      %VW148, W#2
 S       %M6.6
 (* Network 20 *)
@@ -562,7 +618,11 @@ R       %M6.4
 R       %M1.0
 MOVE    W#0, %VW148
 (* Network 26 *)
-LDN     %M1.0
+LD      %M1.0
+OR      %M7.5
+ANDN    %M7.6
+ST      %M7.7
+LDN     %M7.7
 ST      %Q0.4
 (* Network 27 *)
 LD      %M1.1
@@ -805,6 +865,7 @@ ST      %V307.7
 (* Network 88 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 NE      %VW426, W#0
 ST      %M10.4
 (* Network 89 *)
@@ -866,6 +927,7 @@ R       %M10.7
 (* Network 91 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 NE      %VD432, DI#0
 ST      %M14.5
 (* Network 92 *)
@@ -926,6 +988,7 @@ R       %M10.7
 (* Network 94 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 NE      %VW412, W#0
 ST      %M15.1
 (* Network 95 *)
@@ -1052,23 +1115,27 @@ ST      %M16.7
 (* Network 99 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 AND     %I0.4
 ANDN    %I0.5
 S       %M16.5
 (* Network 100 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 AND     %I0.5
 ANDN    %I0.4
 S       %M16.6
 (* Network 101 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 EQ      %VW448, W#1
 S       %M16.5
 (* Network 102 *)
 LD      %SM0.0
 ANDN    %M11.0
+ANDN    %M17.6
 EQ      %VW448, W#2
 S       %M16.6
 (* Network 103 *)
@@ -1197,7 +1264,11 @@ R       %M16.4
 R       %M11.0
 MOVE    W#0, %VW448
 (* Network 109 *)
-LDN     %M11.0
+LD      %M11.0
+OR      %M17.5
+ANDN    %M17.6
+ST      %M17.7
+LDN     %M17.7
 ST      %Q0.5
 (* Network 110 *)
 LD      %M11.1
@@ -1437,4 +1508,28 @@ ST      %V607.6
 (* Network 170 *)
 LD      %Q0.5
 ST      %V607.7
+(* Network 171 *)
+LD      %M7.5
+ST      %V318.0
+(* Network 172 *)
+LD      %M7.6
+ST      %V318.1
+(* Network 173 *)
+LD      %M7.7
+ST      %V318.2
+(* Network 174 *)
+LD      %Q0.4
+ST      %V318.3
+(* Network 175 *)
+LD      %M17.5
+ST      %V318.4
+(* Network 176 *)
+LD      %M17.6
+ST      %V318.5
+(* Network 177 *)
+LD      %M17.7
+ST      %V318.6
+(* Network 178 *)
+LD      %Q0.5
+ST      %V318.7
 END
