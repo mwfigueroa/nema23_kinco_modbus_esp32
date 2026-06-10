@@ -73,6 +73,7 @@ No reemplaza una parada de emergencia de seguridad cableada por hardware.
 | `40169-40170` | `%VD136` | DWORD | Frecuencia maxima PREL |
 | `40171` | `%VW140` | WORD | Frecuencia minima PREL |
 | `40172` | `%VW142` | WORD | Tiempo acel/decel PREL |
+| `40173` | `%VW144` | WORD | Reinicio logico a estado de primer scan; escribir `1` |
 | `40175` | `%VW148` | WORD | Comando JOG: `0` stop, `1` forward, `2` backward |
 | `40176` | `%VW150` | INT | Direccion JOG activa |
 | `40177-40178` | `%VD152` | DWORD | Velocidad JOG |
@@ -89,6 +90,7 @@ No reemplaza una parada de emergencia de seguridad cableada por hardware.
 | `40256` | `%VW310` | WORD | Error HOME, low byte `%VB310` |
 | `40257` | `%VW312` | WORD | Estado JOG |
 | `40258` | `%VW314` | WORD | Error JOG low byte, error PSTOP high byte |
+| `40259` | `%VW316` | WORD | Estado entradas digitales CPU `%I0.0`..`%I1.0` |
 
 ## 4. Mapa Modbus - Motor 2
 
@@ -139,8 +141,10 @@ Algunas librerias Modbus usan direccion base 0:
 | `40164` | `163` |
 | `40165` | `164` |
 | `40166` | `165` |
+| `40173` | `172` |
 | `40201` | `200` |
 | `40252` | `251` |
+| `40259` | `258` |
 | `40301` | `300` |
 | `40314` | `313` |
 | `40315` | `314` |
@@ -198,7 +202,25 @@ Motor 1 usa `%VW312`; motor 2 usa `%VW612`.
 | 6 | Comando web JOG activo |
 | 7 | Error PSTOP JOG |
 
-## 9. Resumen IL
+## 9. Entradas Digitales por Modbus
+
+Leer `40259` / `%VW316` (`address 258` base 0) para obtener el estado de
+entradas digitales de la CPU. Las entradas libres quedan disponibles en bits
+`6`, `7` y `8`.
+
+| Bit | Entrada PLC | Uso actual |
+|---:|---|---|
+| 0 | `%I0.0` | HOME motor 1 |
+| 1 | `%I0.1` | JOG forward motor 1 |
+| 2 | `%I0.2` | JOG backward motor 1 |
+| 3 | `%I0.3` | HOME motor 2 |
+| 4 | `%I0.4` | JOG forward motor 2 |
+| 5 | `%I0.5` | JOG backward motor 2 |
+| 6 | `%I0.6` | Libre |
+| 7 | `%I0.7` | Libre |
+| 8 | `%I1.0` | Libre |
+
+## 10. Resumen IL
 
 El programa actual tiene networks `0..170`.
 
@@ -214,7 +236,7 @@ El programa actual tiene networks `0..170`.
 | Reset posicion | `%SM201.6` | `%SM231.6` |
 | Busy PTO debug | `%SM66.7` | `%SM76.7` |
 
-## 10. API ESP32
+## 11. API ESP32
 
 La interfaz web usa selector Motor 1 / Motor 2 y envia `axis=0` o `axis=1`.
 
@@ -245,13 +267,26 @@ Motor 2: escribir 1 en 40315 / %VW428
 Ambos:   escribir 1 en 40166 / %VW130
 ```
 
-## 11. Checklist de Prueba
+Reinicio logico del programa PLC:
+
+```text
+Escribir 1 en 40173 / %VW144
+Base-0: write single register address 172 = 1
+```
+
+Este comando replica la inicializacion de primer scan: limpia comandos, errores
+y estados, restaura parametros por defecto y pulsa el reset de posicion PTO de
+ambos ejes. Usarlo con los ejes detenidos; si hay movimiento activo, mandar
+primero Stop ambos (`40166`).
+
+## 12. Checklist de Prueba
 
 1. Cargar `MAIN_MAIN.ilp` y `Kinco_esp_Modbus_test_2.kgv` actualizados en KincoBuilder.
 2. Confirmar que la PLC quede en RUN.
 3. Confirmar cableado:
    - Motor 1: `%Q0.0`, `%Q0.2`, `%Q0.4`, `%I0.0`, `%I0.1`, `%I0.2`.
    - Motor 2: `%Q0.1`, `%Q0.3`, `%Q0.5`, `%I0.3`, `%I0.4`, `%I0.5`.
+   - Entradas libres: `%I0.6`, `%I0.7`, `%I1.0`, leer por `40259`.
 4. Abrir la UI del ESP32.
 5. Probar primero Motor 1 con recorrido corto.
 6. Cambiar selector a Motor 2 y probar recorrido corto.

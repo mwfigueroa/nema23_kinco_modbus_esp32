@@ -223,6 +223,7 @@ Motor 1 (`axis=0`):
 | 40169-40170 | `%VD136` | DWORD | Frecuencia maxima PREL |
 | 40171 | `%VW140` | WORD | Frecuencia minima PREL |
 | 40172 | `%VW142` | WORD | Tiempo de aceleracion/desaceleracion PREL |
+| 40173 | `%VW144` | WORD | Reinicio logico a estado de primer scan; escribir `1` |
 | 40175 | `%VW148` | WORD | Comando JOG: `0` stop, `1` forward, `2` backward |
 | 40176 | `%VW150` | WORD | Direccion JOG activa |
 | 40177-40178 | `%VD152` | DWORD | Velocidad JOG |
@@ -277,6 +278,7 @@ Motor 1 (`axis=0`):
 | 40256 | `%VW310` | WORD | `Err_Home`, low byte `%VB310` |
 | 40257 | `%VW312` | WORD | Bits de estado JOG |
 | 40258 | `%VW314` | WORD | `Err_Jog` y `Err_JogStop` |
+| 40259 | `%VW316` | WORD | Estado entradas digitales CPU `%I0.0`..`%I1.0` |
 
 Motor 2 (`axis=1`):
 
@@ -311,6 +313,7 @@ Si el master usa direcciones base 0:
 40169-40170 -> address 168, quantity 2
 40171       -> address 170
 40172       -> address 171
+40173       -> address 172
 40175       -> address 174
 40176       -> address 175
 40177-40178 -> address 176, quantity 2
@@ -320,6 +323,7 @@ Si el master usa direcciones base 0:
 40256       -> address 255
 40257       -> address 256
 40258       -> address 257
+40259       -> address 258
 40301-40302 -> address 300, quantity 2
 40303-40304 -> address 302, quantity 2
 40305       -> address 304
@@ -377,6 +381,49 @@ Motor 1: leer 40252; bit 8 StopDone, bit 9 StopErr
 Motor 2: leer 40402; bit 8 StopDone, bit 9 StopErr
 ```
 
+### Reinicio logico del programa PLC
+
+Escribir `1` en `40173` / `%VW144` ejecuta una inicializacion logica igual al
+primer scan del programa: limpia comandos, errores, estados internos, restaura
+parametros por defecto y pulsa el reset de posicion PTO de ambos ejes. El propio
+PLC vuelve a escribir `0` en `40173`.
+
+```text
+Reinicio logico: escribir WORD 1 en 40173
+Base-0:          write single register address 172 = 1
+```
+
+Usarlo con los ejes detenidos. Si hay movimiento activo, mandar primero
+`Stop ambos` (`40166`) y luego `40173`. Esto no reemplaza una parada de
+emergencia cableada ni reinicia electricamente la PLC.
+
+## Estado de Entradas Digitales
+
+El programa PLC copia las entradas digitales de la CPU a `%VW316`, accesible por
+Modbus como `40259` (`address 258` en librerias base-0). Las entradas libres
+disponibles quedan expuestas en los bits `6`, `7` y `8`.
+
+| Bit | Entrada PLC | Uso actual |
+|---:|---|---|
+| 0 | `%I0.0` | HOME motor 1 |
+| 1 | `%I0.1` | JOG forward motor 1 |
+| 2 | `%I0.2` | JOG backward motor 1 |
+| 3 | `%I0.3` | HOME motor 2 |
+| 4 | `%I0.4` | JOG forward motor 2 |
+| 5 | `%I0.5` | JOG backward motor 2 |
+| 6 | `%I0.6` | Libre |
+| 7 | `%I0.7` | Libre |
+| 8 | `%I1.0` | Libre |
+
+Ejemplo:
+
+```text
+Leer holding register 40259.
+Si value & 0x0040 != 0, entonces I0.6 esta activa.
+Si value & 0x0080 != 0, entonces I0.7 esta activa.
+Si value & 0x0100 != 0, entonces I1.0 esta activa.
+```
+
 ## Bits de estado de ciclo
 
 Motor 1 usa `40252` / `%VW302`; motor 2 usa `40402` / `%VW602`.
@@ -428,6 +475,7 @@ Motor 1 usa `40255` / `%VW308`; motor 2 usa `40405` / `%VW608`.
 | Enable motor 2 | `%Q0.5` activo-bajo (`0` habilita, `1` deshabilita) |
 | Sensor HOME motor 2 | `%I0.3` |
 | JOG fisico motor 2 | `%I0.4` forward, `%I0.5` backward |
+| Entradas libres por Modbus | `%I0.6`, `%I0.7`, `%I1.0` en `40259` |
 
 `%Q0.0/%Q0.2` y `%Q0.1/%Q0.3` los manejan las instrucciones
 `PABS`/`PREL`/`PHOME`; no se fuerzan desde ladder. `%Q0.3` ya no puede usarse

@@ -14,11 +14,13 @@ del ESP32:
 | HOME sensor | `%I0.0` | `%I0.3` |
 | JOG forward | `%I0.1` | `%I0.4` |
 | JOG backward | `%I0.2` | `%I0.5` |
+| Entradas libres por Modbus | `%I0.6`, `%I0.7`, `%I1.0` en `40259` / `%VW316` | idem |
 | Posicion Modbus | `40201-40202` / `%VD200` | `40351-40352` / `%VD500` |
 | Estado ciclo | `40252` / `%VW302` | `40402` / `%VW602` |
 | Start PABS simple | `40164` / `%VW126` | `40314` / `%VW426` |
 | Stop operativo | `40165` / `%VW128` | `40315` / `%VW428` |
 | Stop ambos ejes | `40166` / `%VW130` | `40166` / `%VW130` |
+| Reinicio logico PLC | `40173` / `%VW144` | `40173` / `%VW144` |
 
 Documentacion vigente:
 
@@ -34,6 +36,15 @@ Stop operativo agregado el 2026-06-10: escribir `1` en `40165` detiene motor
 1 por `PSTOP`, escribir `1` en `40315` detiene motor 2 por `PSTOP`, y escribir
 `1` en `40166` detiene ambos ejes. Es una parada operativa por software dentro
 del scan PLC, no una parada de emergencia de seguridad cableada.
+
+Entradas digitales libres agregadas a Modbus el 2026-06-10: leer `40259` /
+`%VW316` (`address 258` base 0). Bits `6`, `7` y `8` corresponden a `%I0.6`,
+`%I0.7` y `%I1.0`.
+
+Reinicio logico agregado el 2026-06-10: escribir `1` en `40173` / `%VW144`
+replica la inicializacion de primer scan, limpia comandos/estados/errores,
+restaura parametros por defecto y pulsa reset de posicion PTO de ambos ejes.
+Usar con ejes detenidos; si hay movimiento activo mandar primero `40166`.
 
 ## Punto Guardado - 2026-06-08 17:50 ART
 

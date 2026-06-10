@@ -5,6 +5,9 @@ JogBwdInput,%I0.2,BOOL,Entrada fisica JOG backward
 HomeSensor2,%I0.3,BOOL,Sensor fisico de HOME motor 2
 JogFwdInput2,%I0.4,BOOL,Entrada fisica JOG forward motor 2
 JogBwdInput2,%I0.5,BOOL,Entrada fisica JOG backward motor 2
+FreeInput_I06,%I0.6,BOOL,Entrada digital libre I0.6
+FreeInput_I07,%I0.7,BOOL,Entrada digital libre I0.7
+FreeInput_I10,%I1.0,BOOL,Entrada digital libre I1.0
 PabsOutStarted,%M0.1,BOOL,Latch de start PABS simple emitido
 PabsEnableReady,%M0.2,BOOL,Timer T1 terminado antes de PABS simple
 StartPabsOutPulse,%M0.3,BOOL,Pulso PABS simple despues de enable
@@ -50,6 +53,7 @@ JogStopPulse,%M7.0,BOOL,Pulso interno PSTOP para detener JOG
 JogStopErr,%M7.1,BOOL,Error bruto de la instruccion PSTOP JOG
 JogStartPulse,%M7.2,BOOL,Pulso comun EXEC de la instruccion PJOG
 StopRequest,%M7.3,BOOL,Solicitud interna de stop operativo
+ReinitRequest,%M7.4,BOOL,Solicitud interna de reinicio logico a primer scan
 Hw_StepPul,%Q0.0,BOOL,PTO0 STEP PUL motor 1 manejado por PABS/PREL/PHOME
 Hw_Dir,%Q0.2,BOOL,PTO0 DIR motor 1 manejado por PABS/PREL/PHOME
 Hw_DrvEnable,%Q0.4,BOOL,Enable driver motor 1 activo solo durante el ciclo
@@ -94,6 +98,15 @@ Status_JogFwdInput,%V312.4,BOOL,Entrada I0.1 JOG forward
 Status_JogBwdInput,%V312.5,BOOL,Entrada I0.2 JOG backward
 Status_JogCmdActive,%V312.6,BOOL,Comando web JOG activo
 Status_JogStopErr,%V312.7,BOOL,PSTOP JOG con error
+InputStatus_I00,%V316.0,BOOL,Estado entrada digital I0.0
+InputStatus_I01,%V316.1,BOOL,Estado entrada digital I0.1
+InputStatus_I02,%V316.2,BOOL,Estado entrada digital I0.2
+InputStatus_I03,%V316.3,BOOL,Estado entrada digital I0.3
+InputStatus_I04,%V316.4,BOOL,Estado entrada digital I0.4
+InputStatus_I05,%V316.5,BOOL,Estado entrada digital I0.5
+InputStatus_I06,%V316.6,BOOL,Estado entrada digital libre I0.6
+InputStatus_I07,%V316.7,BOOL,Estado entrada digital libre I0.7
+InputStatus_I10,%V317.0,BOOL,Estado entrada digital libre I1.0
 PabsError_Word,%VW304,WORD,MODBUS 40253 error PABS
 PrelError_Word,%VW306,WORD,MODBUS 40254 error PREL y debug
 HomeError_Word,%VW310,WORD,MODBUS 40256 error HOME
@@ -128,11 +141,13 @@ Cmd_Stop,%VW128,WORD,MODBUS 40165 stop operativo motor 1; escribir 1 ejecuta PST
 Cmd_StopAll,%VW130,WORD,MODBUS 40166 stop operativo ambos motores; escribir 1 ejecuta PSTOP en ambos ejes
 PrelMinF,%VW140,WORD,MODBUS 40171 frecuencia minima PREL
 PrelTime,%VW142,WORD,MODBUS 40172 aceleracion desaceleracion PREL
+Cmd_Reinit,%VW144,WORD,MODBUS 40173 reinicio logico a estado de primer scan; escribir 1
 Cmd_Jog,%VW148,WORD,MODBUS 40175 comando JOG 0 stop 1 forward 2 backward
 JogDir,%VW150,INT,MODBUS 40176 direccion JOG 0 forward 1 backward
 Status_Word,%VW302,WORD,MODBUS 40252 estado del ciclo
 HomeStatus_Word,%VW308,WORD,MODBUS 40255 estado de HOME
 JogStatus_Word,%VW312,WORD,MODBUS 40257 estado de JOG
+InputStatus_Word,%VW316,WORD,MODBUS 40259 estado entradas digitales I0.0-I1.0
 M2_PabsOutStarted,%M10.1,BOOL,Latch de start PABS simple emitido motor 2
 M2_PabsEnableReady,%M10.2,BOOL,Timer T3 terminado antes de PABS simple motor 2
 M2_StartPabsOutPulse,%M10.3,BOOL,Pulso PABS simple despues de enable motor 2
