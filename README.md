@@ -449,6 +449,14 @@ Base-0:        write single register address 178 = 5 o 6
 Leer estado:   read holding register 40260 / address 259
 ```
 
+Comportamiento verificado contra el PLC: tras escribir el valor de comando, `40179`
+vuelve a `0` por si solo (el maestro NO necesita pulsarlo a `0`), y el cambio se
+refleja en `40260` (bit `enable efectivo`: motor 1 = bit 2, motor 2 = bit 6). El
+control por eje es independiente: deshabilitar un motor no afecta al otro. A
+diferencia del reinicio logico `40173`, que SI debe pulsarse `1`->`0`, este
+registro de enable/disable es de auto-limpieza. Confirmar la accion leyendo `40260`
+en lugar de `40179`.
+
 ## Estado de Entradas Digitales
 
 El programa PLC copia las entradas digitales de la CPU a `%VW316`, accesible por
